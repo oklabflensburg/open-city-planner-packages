@@ -91,7 +91,10 @@
           - "uv=={{ packages_registry_uv_version }}"
       when: >-
         packages_registry_installed_uv.rc != 0 or
-        packages_registry_installed_uv.stdout != 'uv ' ~ packages_registry_uv_version
+        (packages_registry_installed_uv.stdout != 'uv ' ~ packages_registry_uv_version and
+         not packages_registry_installed_uv.stdout.startswith(
+           'uv ' ~ packages_registry_uv_version ~ ' '
+         ))
 
     - name: Verify pinned uv installation
       ansible.builtin.command:
@@ -100,4 +103,9 @@
           - --version
       register: packages_registry_verified_uv
       changed_when: false
-      failed_when: packages_registry_verified_uv.stdout != 'uv ' ~ packages_registry_uv_version
+      failed_when: >-
+        packages_registry_verified_uv.rc != 0 or
+        (packages_registry_verified_uv.stdout != 'uv ' ~ packages_registry_uv_version and
+         not packages_registry_verified_uv.stdout.startswith(
+           'uv ' ~ packages_registry_uv_version ~ ' '
+         ))

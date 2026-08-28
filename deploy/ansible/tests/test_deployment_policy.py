@@ -103,9 +103,12 @@ def test_nginx_is_static_tls_only_with_required_headers() -> None:
 
 def test_bootstrap_uses_pinned_uv_without_download_script() -> None:
     bootstrap = read(ANSIBLE / "playbooks" / "bootstrap.yml")
+    tasks = read(ROLE / "tasks" / "main.yml")
     defaults = yaml.safe_load(read(ROLE / "defaults" / "main.yml"))
     assert defaults["packages_registry_uv_version"] == "0.12.5"
     assert '"uv=={{ packages_registry_uv_version }}"' in bootstrap
+    assert "stdout.startswith(" in bootstrap
+    assert "stdout.startswith(" in tasks
     assert "curl" not in bootstrap
     assert "| sh" not in bootstrap
 
