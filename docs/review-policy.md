@@ -29,3 +29,5 @@ Git history and pull-request approvals are the audit trail. Registry metadata th
 ## Immutability
 
 Existing module/version release objects cannot be edited or removed after publication, including channel, URL, digest, provenance, and compatibility metadata. Corrections require a new SemVer release. CI compares pull-request source with the base branch and rejects mutations while allowing new versions. Convenience channel pointers in the generated index may advance because they are derived from immutable releases.
+
+Reviewers must distinguish presentation updates from provenance changes. `name`, `description`, `homepage`, `documentation_url`, and `publisher.name` are controlled mutable presentation fields. Published `id`, `publisher.id`, `classification`, `source_repository`, and Registry v1 `license` are protected. A legitimate transfer, reclassification, or license-model change needs a separate explicit policy/migration review; no normal metadata PR can override these protections.
