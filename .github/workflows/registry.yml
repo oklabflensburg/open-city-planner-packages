@@ -21,6 +21,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -36,15 +37,17 @@ jobs:
       - name: Lint
         run: uv run ruff check .
 
-      - name: Test
-        run: uv run pytest
-
       - name: Validate registry source
         run: uv run python scripts/validate_registry.py
 
       - name: Enforce published release immutability
         if: github.event_name == 'pull_request'
-        run: uv run python scripts/validate_registry.py --base-ref "origin/${{ github.base_ref }}"
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: uv run python scripts/validate_registry.py --base-ref "${BASE_REF}"
+
+      - name: Test
+        run: uv run pytest
 
       - name: Rebuild static deployment artifact
         run: uv run python scripts/build_registry.py --output dist
@@ -54,3 +57,93 @@ jobs:
 
       - name: Check whitespace
         run: git diff --check
+
+  artifact-verification:
+    if: github.event_name == 'pull_request'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out registry source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up pinned host Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12.14"
+
+      - name: Install pinned uv
+        run: python -m pip install "uv==0.12.5"
+
+      - name: Install locked registry dependencies
+        run: uv sync --frozen
+
+      - name: Determine new release artifacts
+        id: releases
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: |
+          count="$(uv run python scripts/verify_artifacts.py \
+            --base-ref "${BASE_REF}" \
+            --count-only)"
+          echo "count=${count}" >> "${GITHUB_OUTPUT}"
+
+      - name: Read pinned host contract
+        if: steps.releases.outputs.count != '0'
+        id: host-contract
+        run: |
+          uv run python - <<'PY' >> "${GITHUB_OUTPUT}"
+          from scripts.verify_artifacts import load_host_verifier_contract
+
+          contract = load_host_verifier_contract()
+          print(f"repository={contract['OCP_HOST_VERIFIER_REPOSITORY']}")
+          print(f"ref={contract['OCP_HOST_VERIFIER_REF']}")
+          PY
+
+      - name: Check out pinned Open City Planner verifier
+        if: steps.releases.outputs.count != '0'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.host-contract.outputs.repository }}
+          ref: ${{ steps.host-contract.outputs.ref }}
+          path: _host-verifier
+          persist-credentials: false
+
+      - name: Set up pinned host Node.js
+        if: steps.releases.outputs.count != '0'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: _host-verifier/.node-version
+
+      - name: Set up pinned host pnpm
+        if: steps.releases.outputs.count != '0'
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.22.0
+          run_install: false
+
+      - name: Install locked host verifier dependencies
+        if: steps.releases.outputs.count != '0'
+        working-directory: _host-verifier/backend
+        run: uv sync --frozen --extra dev --no-editable
+
+      - name: Install locked host frontend verifier dependencies
+        if: steps.releases.outputs.count != '0'
+        working-directory: _host-verifier/frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify new release artifacts
+        if: steps.releases.outputs.count != '0'
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: |
+          uv run python scripts/verify_artifacts.py \
+            --base-ref "${BASE_REF}" \
+            --host-verifier-root _host-verifier
+
+      - name: Report empty candidate set
+        if: steps.releases.outputs.count == '0'
+        run: echo "No new release artifacts to verify."

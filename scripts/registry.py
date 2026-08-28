@@ -7,7 +7,7 @@ import re
 import subprocess
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlsplit
+from urllib.parse import SplitResult, unquote, urlsplit
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError, ValidationError
@@ -177,9 +177,8 @@ def _validate_release(value: Any, origin: str, module_id: str, classification: s
     if not isinstance(artifact, dict):
         raise RegistryValidationError(f"{origin}.artifact: must be an object")
     _exact_keys(artifact, {"url", "sha256"}, {"url", "sha256"}, f"{origin}.artifact")
-    parsed_artifact = _https_url(artifact["url"], f"{origin}.artifact.url")
-    _artifact_policy(
-        parsed_artifact, classification, module_id, version, f"{origin}.artifact.url"
+    validate_artifact_url(
+        artifact["url"], classification, module_id, version, f"{origin}.artifact.url"
     )
     if not isinstance(artifact["sha256"], str) or not SHA256_RE.fullmatch(artifact["sha256"]):
         raise RegistryValidationError(f"{origin}.artifact.sha256: must be 64 lowercase hex chars")
@@ -213,9 +212,16 @@ def _validate_requires(value: Any, origin: str, module_id: str) -> None:
         _version_range(constraint, f"{origin}.modules.{dependency}")
 
 
-def _artifact_policy(
-    parsed: Any, classification: str, module_id: str, version: str, origin: str
-) -> None:
+def validate_artifact_url(
+    url: str,
+    classification: str,
+    module_id: str,
+    version: str,
+    origin: str = "artifact URL",
+) -> SplitResult:
+    """Validate the single Registry v1 initial-artifact URL policy."""
+
+    parsed = _https_url(url, origin)
     path = unquote(parsed.path)
     if not path.endswith(".ocp"):
         raise RegistryValidationError(f"{origin}: artifact path must end in .ocp")
@@ -241,9 +247,10 @@ def _artifact_policy(
         raise RegistryValidationError(
             f"{origin}: first-party GitHub artifacts must be under oklabflensburg"
         )
+    return parsed
 
 
-def _https_url(value: Any, origin: str) -> Any:
+def _https_url(value: Any, origin: str) -> SplitResult:
     if not isinstance(value, str) or not value:
         raise RegistryValidationError(f"{origin}: must be a non-empty HTTPS URL")
     parsed = urlsplit(value)
