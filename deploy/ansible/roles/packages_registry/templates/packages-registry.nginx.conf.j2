@@ -1,0 +1,56 @@
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ packages_registry_domain }};
+
+    location ^~ /.well-known/acme-challenge/ {
+        root {{ packages_registry_acme_webroot }};
+        default_type text/plain;
+        try_files $uri =404;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name {{ packages_registry_domain }};
+
+    ssl_certificate /etc/letsencrypt/live/{{ packages_registry_certificate_name }}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{ packages_registry_certificate_name }}/privkey.pem;
+
+    root {{ packages_registry_current_path }}/dist;
+    autoindex off;
+
+    access_log /var/log/nginx/packages-registry-access.log;
+    error_log /var/log/nginx/packages-registry-error.log;
+
+    location = /index.json {
+        default_type application/json;
+        add_header Cache-Control "public, max-age=300" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "no-referrer" always;
+        try_files $uri =404;
+    }
+
+    location ^~ /modules/ {
+        default_type application/json;
+        add_header Cache-Control "public, max-age=300" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "no-referrer" always;
+        try_files $uri =404;
+    }
+
+    location ~ /\. {
+        return 404;
+    }
+
+    location / {
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "no-referrer" always;
+        try_files $uri =404;
+    }
+}

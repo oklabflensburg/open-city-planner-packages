@@ -50,6 +50,16 @@ Registry pull requests pass separate gates for metadata/schema policy, published
 
 After first publication, stable module provenance (publisher ID, classification, source repository, and Registry v1 license) is protected, while presentation metadata remains editable through reviewed pull requests.
 
+## Production deployment
+
+The registry has an independent [Ansible deployment](deploy/ansible/README.md)
+for `packages.stadtplaner.oklabflensburg.de`. It resolves an explicit Git ref to
+an immutable SHA release, rebuilds and validates `dist/`, atomically switches
+`current`, serves only `current/dist` through Nginx, and automatically restores
+the previous release when rollout smoke checks fail. Production deployment is a
+manual, authorized operation after Registry CI; pull requests never connect to
+the server.
+
 A contribution adds one file such as `registry/modules/example.json`; see [the format](docs/registry-format.md) and [publishing flow](docs/publishing.md). Registry compatibility fields are discovery metadata copied from the bundle manifest. The embedded manifest remains authoritative during verification and installation.
 
 ## Status and scope

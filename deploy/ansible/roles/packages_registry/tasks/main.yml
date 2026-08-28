@@ -1,0 +1,590 @@
+---
+- name: Require safe package registry deployment settings
+  ansible.builtin.assert:
+    that:
+      - packages_registry_release_retention | int >= 2
+      - packages_registry_min_release_free_bytes | int > 0
+      - packages_registry_service_user != 'root'
+      - packages_registry_service_group != 'root'
+      - packages_registry_root.startswith('/')
+      - packages_registry_repo_path.startswith(packages_registry_root ~ '/')
+      - packages_registry_releases_dir.startswith(packages_registry_root ~ '/')
+      - packages_registry_current_path.startswith(packages_registry_root ~ '/')
+    fail_msg: Package registry deployment variables violate a required safety invariant.
+
+- name: Ensure package registry service group exists
+  ansible.builtin.group:
+    name: "{{ packages_registry_service_group }}"
+    system: true
+    state: present
+
+- name: Ensure package registry service user exists
+  ansible.builtin.user:
+    name: "{{ packages_registry_service_user }}"
+    group: "{{ packages_registry_service_group }}"
+    system: true
+    create_home: false
+    shell: /usr/sbin/nologin
+    state: present
+
+- name: Ensure package registry deployment directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ packages_registry_root }}"
+      owner: root
+      group: "{{ packages_registry_service_group }}"
+      mode: "0755"
+    - path: "{{ packages_registry_repo_path }}"
+      owner: "{{ packages_registry_service_user }}"
+      group: "{{ packages_registry_service_group }}"
+      mode: "0755"
+    - path: "{{ packages_registry_releases_dir }}"
+      owner: "{{ packages_registry_service_user }}"
+      group: "{{ packages_registry_service_group }}"
+      mode: "0755"
+    - path: "{{ packages_registry_uv_cache_dir }}"
+      owner: "{{ packages_registry_service_user }}"
+      group: "{{ packages_registry_service_group }}"
+      mode: "0750"
+    - path: "{{ packages_registry_acme_webroot }}/.well-known/acme-challenge"
+      owner: root
+      group: www-data
+      mode: "0755"
+      when_nginx: true
+  when: not item.when_nginx | default(false) or packages_registry_manage_nginx | bool
+
+- name: Require pinned uv tooling from bootstrap
+  ansible.builtin.command:
+    argv:
+      - "{{ packages_registry_uv_venv }}/bin/uv"
+      - --version
+  register: packages_registry_uv_version_result
+  changed_when: false
+  failed_when: >-
+    packages_registry_uv_version_result.rc != 0 or
+    packages_registry_uv_version_result.stdout != 'uv ' ~ packages_registry_uv_version
+
+- name: Update repository to requested ref without discarding local changes
+  ansible.builtin.git:
+    repo: "{{ packages_registry_repo_url }}"
+    dest: "{{ packages_registry_repo_path }}"
+    version: "{{ packages_registry_deploy_ref }}"
+    update: true
+    force: false
+  become_user: "{{ packages_registry_service_user }}"
+  register: packages_registry_git
+
+- name: Resolve immutable package registry release SHA
+  ansible.builtin.command:
+    argv:
+      - git
+      - rev-parse
+      - --verify
+      - "{{ packages_registry_git.after }}^{commit}"
+    chdir: "{{ packages_registry_repo_path }}"
+  become_user: "{{ packages_registry_service_user }}"
+  register: packages_registry_resolved_revision
+  changed_when: false
+
+- name: Define immutable package registry release
+  ansible.builtin.set_fact:
+    packages_registry_release_sha: "{{ packages_registry_resolved_revision.stdout | trim }}"
+    packages_registry_release_path: >-
+      {{ packages_registry_releases_dir }}/{{ packages_registry_resolved_revision.stdout | trim }}
+
+- name: Require a full hexadecimal release SHA
+  ansible.builtin.assert:
+    that:
+      - packages_registry_release_sha is match('^[0-9a-f]{40}$')
+      - packages_registry_git.after == packages_registry_release_sha
+    fail_msg: The requested ref did not resolve to one safe immutable commit SHA.
+
+- name: Inspect current package registry path
+  ansible.builtin.stat:
+    path: "{{ packages_registry_current_path }}"
+    follow: false
+  register: packages_registry_current_stat
+
+- name: Refuse to replace a non-symlink current path
+  ansible.builtin.assert:
+    that:
+      - not packages_registry_current_stat.stat.exists or packages_registry_current_stat.stat.islnk
+    fail_msg: >-
+      {{ packages_registry_current_path }} exists but is not a symlink; refusing to overwrite it.
+
+- name: Initialize previous package registry release
+  ansible.builtin.set_fact:
+    packages_registry_previous_release_path: ""
+
+- name: Capture previous package registry release
+  ansible.builtin.set_fact:
+    packages_registry_previous_release_path: "{{ packages_registry_current_stat.stat.lnk_source }}"
+  when: packages_registry_current_stat.stat.exists and packages_registry_current_stat.stat.islnk
+
+- name: Require previous release to remain inside release root
+  ansible.builtin.assert:
+    that:
+      - packages_registry_previous_release_path.startswith(packages_registry_releases_dir ~ '/')
+      - packages_registry_previous_release_path | basename is match('^[0-9a-f]{40}$')
+    fail_msg: Existing current symlink does not reference a managed SHA release.
+  when: packages_registry_previous_release_path | length > 0
+
+- name: Read free space available for release assembly
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - >-
+        import os, sys;
+        stats = os.statvfs(sys.argv[1]);
+        print(stats.f_bavail * stats.f_frsize)
+      - "{{ packages_registry_releases_dir }}"
+  register: packages_registry_release_free_space
+  changed_when: false
+
+- name: Require enough free space for release assembly
+  ansible.builtin.assert:
+    that:
+      - packages_registry_release_free_space.stdout | int >= packages_registry_min_release_free_bytes | int
+    fail_msg: >-
+      Only {{ packages_registry_release_free_space.stdout | int }} bytes are free for releases;
+      {{ packages_registry_min_release_free_bytes | int }} bytes are required.
+
+- name: Inspect target release and ready marker
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+  loop:
+    - "{{ packages_registry_release_path }}"
+    - "{{ packages_registry_release_path }}/.release-ready"
+  register: packages_registry_target_release_stats
+
+- name: Refuse an invalid target release path
+  ansible.builtin.assert:
+    that:
+      - >-
+        not packages_registry_target_release_stats.results[0].stat.exists or
+        packages_registry_target_release_stats.results[0].stat.isdir
+      - >-
+        not packages_registry_target_release_stats.results[1].stat.exists or
+        packages_registry_target_release_stats.results[1].stat.isreg
+    fail_msg: Target release or ready marker has an unsafe filesystem type.
+
+- name: Remove incomplete target release before rebuilding
+  ansible.builtin.file:
+    path: "{{ packages_registry_release_path }}"
+    state: absent
+  when:
+    - packages_registry_target_release_stats.results[0].stat.exists
+    - not packages_registry_target_release_stats.results[1].stat.exists
+
+- name: Create target release directory
+  ansible.builtin.file:
+    path: "{{ packages_registry_release_path }}"
+    state: directory
+    owner: "{{ packages_registry_service_user }}"
+    group: "{{ packages_registry_service_group }}"
+    mode: "0755"
+  when: not packages_registry_target_release_stats.results[1].stat.exists
+
+- name: Materialize release with git archive
+  ansible.builtin.shell:
+    cmd: set -o pipefail; git archive --format=tar "${GIT_REF}" | tar -x -C "${RELEASE_DIR}"
+    chdir: "{{ packages_registry_repo_path }}"
+    executable: /bin/bash
+  environment:
+    GIT_REF: "{{ packages_registry_release_sha }}"
+    RELEASE_DIR: "{{ packages_registry_release_path }}"
+  become_user: "{{ packages_registry_service_user }}"
+  changed_when: true
+  when: not packages_registry_target_release_stats.results[1].stat.exists
+
+- name: Synchronize release dependencies from frozen lockfile
+  ansible.builtin.command:
+    argv:
+      - "{{ packages_registry_uv_venv }}/bin/uv"
+      - sync
+      - --frozen
+    chdir: "{{ packages_registry_release_path }}"
+  environment:
+    UV_CACHE_DIR: "{{ packages_registry_uv_cache_dir }}"
+  become_user: "{{ packages_registry_service_user }}"
+
+- name: Lint package registry release
+  ansible.builtin.command:
+    argv:
+      - "{{ packages_registry_uv_venv }}/bin/uv"
+      - run
+      - ruff
+      - check
+      - .
+    chdir: "{{ packages_registry_release_path }}"
+  environment:
+    UV_CACHE_DIR: "{{ packages_registry_uv_cache_dir }}"
+  become_user: "{{ packages_registry_service_user }}"
+  changed_when: false
+
+- name: Run package registry release tests
+  ansible.builtin.command:
+    argv:
+      - "{{ packages_registry_uv_venv }}/bin/uv"
+      - run
+      - pytest
+    chdir: "{{ packages_registry_release_path }}"
+  environment:
+    UV_CACHE_DIR: "{{ packages_registry_uv_cache_dir }}"
+  become_user: "{{ packages_registry_service_user }}"
+  changed_when: false
+  when: packages_registry_run_tests | bool
+
+- name: Validate package registry source
+  ansible.builtin.command:
+    argv:
+      - "{{ packages_registry_uv_venv }}/bin/uv"
+      - run
+      - python
+      - scripts/validate_registry.py
+    chdir: "{{ packages_registry_release_path }}"
+  environment:
+    UV_CACHE_DIR: "{{ packages_registry_uv_cache_dir }}"
+  become_user: "{{ packages_registry_service_user }}"
+  changed_when: false
+
+- name: Build deterministic package registry distribution
+  ansible.builtin.command:
+    argv:
+      - "{{ packages_registry_uv_venv }}/bin/uv"
+      - run
+      - python
+      - scripts/build_registry.py
+      - --output
+      - dist
+    chdir: "{{ packages_registry_release_path }}"
+  environment:
+    UV_CACHE_DIR: "{{ packages_registry_uv_cache_dir }}"
+  become_user: "{{ packages_registry_service_user }}"
+
+- name: Verify deterministic distribution matches release commit
+  ansible.builtin.command:
+    argv:
+      - git
+      - "--git-dir={{ packages_registry_repo_path }}/.git"
+      - "--work-tree={{ packages_registry_release_path }}"
+      - diff
+      - --exit-code
+      - "{{ packages_registry_release_sha }}"
+      - --
+      - dist
+  become_user: "{{ packages_registry_service_user }}"
+  changed_when: false
+
+- name: Check release whitespace against release commit
+  ansible.builtin.command:
+    argv:
+      - git
+      - "--git-dir={{ packages_registry_repo_path }}/.git"
+      - "--work-tree={{ packages_registry_release_path }}"
+      - diff
+      - --check
+      - "{{ packages_registry_release_sha }}"
+      - --
+  become_user: "{{ packages_registry_service_user }}"
+  changed_when: false
+
+- name: Inspect built package registry index
+  ansible.builtin.stat:
+    path: "{{ packages_registry_release_path }}/dist/index.json"
+  register: packages_registry_built_index_stat
+
+- name: Require non-empty regular package registry index
+  ansible.builtin.assert:
+    that:
+      - packages_registry_built_index_stat.stat.exists
+      - packages_registry_built_index_stat.stat.isreg
+      - packages_registry_built_index_stat.stat.size | int > 0
+    fail_msg: The deterministic build did not create a non-empty dist/index.json.
+
+- name: Read built package registry index
+  ansible.builtin.slurp:
+    src: "{{ packages_registry_release_path }}/dist/index.json"
+  register: packages_registry_built_index
+
+- name: Require Registry v1 index shape before activation
+  ansible.builtin.assert:
+    that:
+      - (packages_registry_built_index.content | b64decode | from_json).schema_version == 1
+      - (packages_registry_built_index.content | b64decode | from_json).modules is sequence
+    fail_msg: Built index does not contain the expected Registry v1 envelope.
+
+- name: Find generated package registry directories
+  ansible.builtin.find:
+    paths: "{{ packages_registry_release_path }}/dist"
+    file_type: directory
+    recurse: true
+  register: packages_registry_generated_directories
+
+- name: Set generated package registry directory permissions
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: "{{ packages_registry_service_user }}"
+    group: "{{ packages_registry_service_group }}"
+    mode: "0755"
+  loop: >-
+    {{ [{'path': packages_registry_release_path ~ '/dist'}]
+       + packages_registry_generated_directories.files }}
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Find generated package registry files
+  ansible.builtin.find:
+    paths: "{{ packages_registry_release_path }}/dist"
+    file_type: file
+    recurse: true
+  register: packages_registry_generated_files
+
+- name: Set generated package registry file permissions
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: "{{ packages_registry_service_user }}"
+    group: "{{ packages_registry_service_group }}"
+    mode: "0644"
+  loop: "{{ packages_registry_generated_files.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Mark completely validated release as ready
+  ansible.builtin.copy:
+    content: "{{ packages_registry_release_sha }}\n"
+    dest: "{{ packages_registry_release_path }}/.release-ready"
+    owner: "{{ packages_registry_service_user }}"
+    group: "{{ packages_registry_service_group }}"
+    mode: "0644"
+
+- name: Inspect package registry TLS files
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "/etc/letsencrypt/live/{{ packages_registry_certificate_name }}/fullchain.pem"
+    - "/etc/letsencrypt/live/{{ packages_registry_certificate_name }}/privkey.pem"
+  register: packages_registry_tls_files
+  when: packages_registry_manage_nginx | bool
+
+- name: Refuse nginx rollout without complete TLS certificate
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg or item.stat.islnk
+    fail_msg: "Required TLS file {{ item.item }} is missing; issue the certificate first."
+  loop: "{{ packages_registry_tls_files.results | default([]) }}"
+  when: packages_registry_manage_nginx | bool
+
+- name: Install package registry nginx vhost
+  ansible.builtin.template:
+    src: packages-registry.nginx.conf.j2
+    dest: "/etc/nginx/sites-available/{{ packages_registry_nginx_site_name }}"
+    owner: root
+    group: root
+    mode: "0644"
+  when: packages_registry_manage_nginx | bool
+  notify: Package registry nginx configuration changed
+
+- name: Enable package registry nginx vhost
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/{{ packages_registry_nginx_site_name }}"
+    dest: "/etc/nginx/sites-enabled/{{ packages_registry_nginx_site_name }}"
+    state: link
+  when: packages_registry_manage_nginx | bool
+  notify: Package registry nginx configuration changed
+
+- name: Validate and apply pending nginx configuration before activation
+  ansible.builtin.meta: flush_handlers
+
+- name: Activate package registry release with rollback protection
+  block:
+    - name: Switch current symlink to validated SHA release atomically
+      ansible.builtin.file:
+        src: "{{ packages_registry_release_path }}"
+        dest: "{{ packages_registry_current_path }}"
+        state: link
+        force: true
+
+    - name: Validate nginx configuration after release switch
+      ansible.builtin.command:
+        argv:
+          - nginx
+          - -t
+      changed_when: false
+      when: packages_registry_manage_nginx | bool
+
+    - name: Reload nginx after release switch
+      ansible.builtin.systemd_service:
+        name: nginx
+        state: reloaded
+      when: packages_registry_manage_nginx | bool
+
+    - name: Fetch package registry index through local TLS vhost
+      ansible.builtin.uri:
+        url: https://127.0.0.1/index.json
+        headers:
+          Host: "{{ packages_registry_domain }}"
+        status_code: 200
+        return_content: true
+        validate_certs: false
+      register: packages_registry_local_smoke
+      when: packages_registry_manage_nginx | bool
+
+    - name: Require healthy local Registry v1 response
+      ansible.builtin.assert:
+        that:
+          - "'application/json' in packages_registry_local_smoke.content_type"
+          - packages_registry_local_smoke.json.schema_version == 1
+          - packages_registry_local_smoke.json.modules is sequence
+          - "'max-age=300' in packages_registry_local_smoke.cache_control"
+        fail_msg: Local package registry smoke check returned an invalid response.
+      when: packages_registry_manage_nginx | bool
+
+    - name: Fetch package registry index through public TLS endpoint
+      ansible.builtin.uri:
+        url: "https://{{ packages_registry_domain }}/index.json"
+        status_code: 200
+        return_content: true
+        validate_certs: true
+      register: packages_registry_external_smoke
+      when:
+        - packages_registry_manage_nginx | bool
+        - packages_registry_run_external_smoke_check | bool
+
+    - name: Require healthy external Registry v1 response
+      ansible.builtin.assert:
+        that:
+          - "'application/json' in packages_registry_external_smoke.content_type"
+          - packages_registry_external_smoke.json.schema_version == 1
+          - packages_registry_external_smoke.json.modules is sequence
+        fail_msg: External package registry smoke check returned an invalid response.
+      when:
+        - packages_registry_manage_nginx | bool
+        - packages_registry_run_external_smoke_check | bool
+  rescue:
+    - name: Preserve original package registry deployment failure
+      ansible.builtin.set_fact:
+        packages_registry_original_failure_task: >-
+          {{ ansible_failed_task.name | default('unknown deployment task') }}
+        packages_registry_original_failure_message: >-
+          {{ (ansible_failed_result.msg | default('no module message') | string)
+             | truncate(500, true, '...') }}
+
+    - name: Restore previous package registry state
+      block:
+        - name: Restore previous package registry release symlink
+          ansible.builtin.file:
+            src: "{{ packages_registry_previous_release_path }}"
+            dest: "{{ packages_registry_current_path }}"
+            state: link
+            force: true
+          when: packages_registry_previous_release_path | length > 0
+
+        - name: Remove failed first-deploy current symlink
+          ansible.builtin.file:
+            path: "{{ packages_registry_current_path }}"
+            state: absent
+          when: packages_registry_previous_release_path | length == 0
+
+        - name: Validate nginx configuration after rollback
+          ansible.builtin.command:
+            argv:
+              - nginx
+              - -t
+          changed_when: false
+          when: packages_registry_manage_nginx | bool
+
+        - name: Reload nginx after rollback
+          ansible.builtin.systemd_service:
+            name: nginx
+            state: reloaded
+          when: packages_registry_manage_nginx | bool
+
+        - name: Verify previous Registry v1 release after rollback
+          ansible.builtin.uri:
+            url: https://127.0.0.1/index.json
+            headers:
+              Host: "{{ packages_registry_domain }}"
+            status_code: 200
+            return_content: true
+            validate_certs: false
+          register: packages_registry_rollback_smoke
+          failed_when: >-
+            packages_registry_rollback_smoke.status != 200 or
+            'application/json' not in packages_registry_rollback_smoke.content_type or
+            packages_registry_rollback_smoke.json.schema_version != 1
+          when:
+            - packages_registry_manage_nginx | bool
+            - packages_registry_previous_release_path | length > 0
+      rescue:
+        - name: Preserve package registry rollback failure
+          ansible.builtin.set_fact:
+            packages_registry_rollback_failure_task: >-
+              {{ ansible_failed_task.name | default('unknown rollback task') }}
+            packages_registry_rollback_failure_message: >-
+              {{ (ansible_failed_result.msg | default('no module message') | string)
+                 | truncate(500, true, '...') }}
+
+        - name: Report deployment and rollback failures
+          ansible.builtin.fail:
+            msg: >-
+              Deployment failed at '{{ packages_registry_original_failure_task }}':
+              {{ packages_registry_original_failure_message }}.
+              Rollback also failed at '{{ packages_registry_rollback_failure_task }}':
+              {{ packages_registry_rollback_failure_message }}.
+
+    - name: Report original deployment failure after rollback or first-deploy cleanup
+      ansible.builtin.fail:
+        msg: >-
+          Deployment failed at '{{ packages_registry_original_failure_task }}':
+          {{ packages_registry_original_failure_message }}.
+          {{ ('Rollback to ' ~ packages_registry_previous_release_path ~ ' succeeded.')
+             if packages_registry_previous_release_path | length > 0
+             else 'The failed first-deploy current symlink was removed.' }}
+
+- name: Define protected release paths for retention
+  ansible.builtin.set_fact:
+    packages_registry_protected_release_paths: >-
+      {{ [packages_registry_release_path]
+         + ([packages_registry_previous_release_path]
+            if packages_registry_previous_release_path | length > 0
+               and packages_registry_previous_release_path != packages_registry_release_path
+            else []) }}
+
+- name: Find versioned package registry releases
+  ansible.builtin.find:
+    paths: "{{ packages_registry_releases_dir }}"
+    file_type: directory
+    recurse: false
+  register: packages_registry_release_directories
+
+- name: Select old inactive package registry releases by mtime
+  ansible.builtin.set_fact:
+    packages_registry_release_paths_to_prune: >-
+      {{ ((packages_registry_release_directories.files
+           | rejectattr('path', 'in', packages_registry_protected_release_paths)
+           | sort(attribute='mtime', reverse=true))
+          [(packages_registry_release_retention | int
+            - packages_registry_protected_release_paths | length):]) }}
+
+- name: Prune old inactive package registry releases
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ packages_registry_release_paths_to_prune }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Report deployed package registry revision
+  ansible.builtin.debug:
+    msg: >-
+      Deployed requested ref {{ packages_registry_deploy_ref }} as immutable release
+      {{ packages_registry_release_sha }} at {{ packages_registry_current_path }}.

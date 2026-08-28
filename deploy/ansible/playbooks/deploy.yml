@@ -1,0 +1,8 @@
+---
+- name: Deploy package registry
+  hosts: packages_registry
+  become: true
+  serial: 1
+  any_errors_fatal: true
+  roles:
+    - role: packages_registry

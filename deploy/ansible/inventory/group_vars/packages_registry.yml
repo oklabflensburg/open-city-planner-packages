@@ -1,0 +1,4 @@
+---
+# Non-secret production overrides belong here or in an external inventory.
+# Keep credentials and private SSH options outside this repository.
+ansible_python_interpreter: /usr/bin/python3
