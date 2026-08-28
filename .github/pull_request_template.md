@@ -20,6 +20,7 @@ Commit:
 - [ ] Module tests and release CI are green
 - [ ] License confirmed
 - [ ] Artifact digest independently confirmed
+- [ ] Registry artifact-verification gate is green
 - [ ] Registry metadata validated and `dist/` rebuilt
 
 Implements oklabflensburg/open-city-planner#175 when used for the initial registry infrastructure PR.

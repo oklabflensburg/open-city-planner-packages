@@ -2,6 +2,8 @@
 
 Every release receives the same Registry v1 data validation and the same host-owned `.ocp` verification. `classification` is publishing metadata, never a runtime trust grant.
 
+Stable approval requires four green, independent gates: metadata/schema policy, published-release immutability, downloaded artifact SHA-256 plus the pinned host verifier, and deterministic static build output. The artifact gate checks all new `stable`, `beta`, and `nightly` releases identically. An unreachable artifact or technically unavailable verifier fails closed.
+
 ## First-party stable
 
 - The canonical source repository is public under the controlled `oklabflensburg` GitHub organization.
