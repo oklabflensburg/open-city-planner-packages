@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "id": "energy-analysis",
+  "name": "Energy Analysis (test fixture)",
+  "description": "Non-production fixture for registry validation tests.",
+  "publisher": {
+    "id": "oklabflensburg",
+    "name": "OK Lab Flensburg"
+  },
+  "classification": "first-party",
+  "source_repository": "https://github.com/oklabflensburg/energy-analysis",
+  "license": "AGPL-3.0-only",
+  "versions": [
+    {
+      "version": "1.4.0",
+      "channel": "stable",
+      "artifact": {
+        "url": "https://github.com/oklabflensburg/energy-analysis/releases/download/v1.4.0/energy-analysis-1.4.0.ocp",
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      },
+      "bundle_format_version": 1,
+      "source_commit": "0123456789abcdef0123456789abcdef01234567",
+      "source_tag": "v1.4.0",
+      "requires": {
+        "host": ">=0.2.0,<1.0.0",
+        "sdk": ">=1.7.0,<2.0.0",
+        "modules": {}
+      }
+    }
+  ]
+}
