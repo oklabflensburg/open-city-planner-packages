@@ -1,0 +1,113 @@
+---
+- name: Issue package registry TLS certificate
+  hosts: packages_registry
+  become: true
+  serial: 1
+  vars_files:
+    - ../roles/packages_registry/defaults/main.yml
+  tasks:
+    - name: Require explicit certificate issuance opt-in
+      ansible.builtin.assert:
+        that:
+          - packages_registry_manage_certificates | bool
+          - packages_registry_certbot_email | length > 3
+        fail_msg: >-
+          Set packages_registry_manage_certificates=true and provide
+          packages_registry_certbot_email explicitly.
+
+    - name: Inspect existing package registry certificate
+      ansible.builtin.stat:
+        path: "/etc/letsencrypt/live/{{ packages_registry_certificate_name }}/fullchain.pem"
+      register: packages_registry_certificate
+
+    - name: Prepare package registry ACME challenge
+      when: not packages_registry_certificate.stat.exists
+      block:
+        - name: Create package registry ACME webroot
+          ansible.builtin.file:
+            path: "{{ packages_registry_acme_webroot }}/.well-known/acme-challenge"
+            state: directory
+            owner: root
+            group: www-data
+            mode: "0755"
+
+        - name: Install temporary package registry ACME vhost
+          ansible.builtin.copy:
+            dest: "/etc/nginx/sites-available/{{ packages_registry_nginx_site_name }}-acme"
+            owner: root
+            group: root
+            mode: "0644"
+            content: |
+              server {
+                  listen 80;
+                  listen [::]:80;
+                  server_name {{ packages_registry_domain }};
+                  location ^~ /.well-known/acme-challenge/ {
+                      root {{ packages_registry_acme_webroot }};
+                      try_files $uri =404;
+                  }
+                  location / { return 404; }
+              }
+
+        - name: Enable temporary package registry ACME vhost
+          ansible.builtin.file:
+            src: "/etc/nginx/sites-available/{{ packages_registry_nginx_site_name }}-acme"
+            dest: "/etc/nginx/sites-enabled/{{ packages_registry_nginx_site_name }}-acme"
+            state: link
+
+        - name: Validate nginx before certificate request
+          ansible.builtin.command:
+            argv:
+              - nginx
+              - -t
+          changed_when: false
+
+        - name: Reload nginx for package registry ACME challenge
+          ansible.builtin.systemd_service:
+            name: nginx
+            state: reloaded
+
+        - name: Obtain package registry certificate through webroot challenge
+          ansible.builtin.command:
+            argv:
+              - certbot
+              - certonly
+              - --webroot
+              - -w
+              - "{{ packages_registry_acme_webroot }}"
+              - -d
+              - "{{ packages_registry_domain }}"
+              - --cert-name
+              - "{{ packages_registry_certificate_name }}"
+              - --non-interactive
+              - --agree-tos
+              - --email
+              - "{{ packages_registry_certbot_email }}"
+      always:
+        - name: Remove temporary package registry ACME vhost link
+          ansible.builtin.file:
+            path: "/etc/nginx/sites-enabled/{{ packages_registry_nginx_site_name }}-acme"
+            state: absent
+
+        - name: Remove temporary package registry ACME vhost file
+          ansible.builtin.file:
+            path: "/etc/nginx/sites-available/{{ packages_registry_nginx_site_name }}-acme"
+            state: absent
+
+        - name: Validate nginx after package registry ACME cleanup
+          ansible.builtin.command:
+            argv:
+              - nginx
+              - -t
+          changed_when: false
+
+        - name: Reload nginx after package registry ACME cleanup
+          ansible.builtin.systemd_service:
+            name: nginx
+            state: reloaded
+
+    - name: Report package registry certificate state
+      ansible.builtin.debug:
+        msg: >-
+          Certificate {{ packages_registry_certificate_name }} is available;
+          run playbooks/deploy.yml to install the permanent TLS vhost.

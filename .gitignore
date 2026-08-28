@@ -3,4 +3,5 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 _host-verifier/
+deploy/ansible/inventory/production.ini
 *.py[cod]

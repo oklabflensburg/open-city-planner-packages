@@ -1,43 +1,47 @@
-# Static deployment contract
+# Static registry deployment contract
 
-`scripts/build_registry.py` validates source and creates the complete deployment artifact under `dist/`:
+The package registry is a static, deterministically built release artifact tree.
+Ansible deploys an explicit Git ref as an immutable commit SHA, validates the
+resulting `dist/`, switches one atomic `current` symlink, and Nginx serves only
+`current/dist`. No application runtime participates in deployment or serving.
+
+The complete operator runbook, variables, bootstrap, TLS workflow, rollback,
+retention, permissions, and troubleshooting commands live in
+[`deploy/ansible/README.md`](../deploy/ansible/README.md). The short production
+sequence is:
+
+1. Require successful Registry CI for the intended `main` commit.
+2. Bootstrap the target once with `playbooks/bootstrap.yml`.
+3. Point DNS at the host and issue TLS separately with the opt-in
+   `playbooks/certificates.yml`.
+4. Run `playbooks/deploy.yml` with
+   `packages_registry_deploy_ref=<40-character-commit-sha>`.
+5. Ansible updates the non-forced checkout and resolves the actual commit SHA.
+6. It materializes `releases/<sha>` using `git archive`, runs locked dependency
+   sync, lint, tests, source validation, and deterministic `dist/` build.
+7. Disk space, committed output, whitespace, and `dist/index.json` are checked
+   before `.release-ready` is written.
+8. TLS and Nginx syntax are checked before activation.
+9. `current` switches to the ready release; local and external HTTPS smoke checks
+   require HTTP 200, JSON, and Registry schema version 1.
+10. A failure restores and verifies the previous release, while success prunes
+    old inactive releases by mtime.
+
+The target layout is:
 
 ```text
-dist/
-├── index.json
-└── modules/
-    └── <module-id>.json
+/opt/open-city-planner-packages/
+├── repo/
+├── releases/<commit-sha>/
+└── current -> /opt/open-city-planner-packages/releases/<commit-sha>
 ```
 
-Publish `index.json` and `modules/` from the same build. Build into a staging release directory and atomically switch a symlink (or use an equivalent atomic object-storage release) so consumers never observe an index and metadata from different builds. Deployment runs only from the protected main branch after merge; pull-request workflows validate data and never receive deployment secrets.
+The public webroot is
+`/opt/open-city-planner-packages/current/dist`. Index and module metadata use
+`application/json` and `Cache-Control: public, max-age=300`. The vhost has no
+proxy, SPA fallback, wildcard CORS, source-tree exposure, or directory listing.
 
-The target is `packages.stadtplaner.oklabflensburg.de`. A static Nginx deployment needs no proxy process:
-
-```nginx
-server {
-    server_name packages.stadtplaner.oklabflensburg.de;
-    root /var/www/open-city-planner-packages/current;
-
-    location / {
-        try_files $uri =404;
-    }
-
-    location = /index.json {
-        default_type application/json;
-        add_header Cache-Control "public, max-age=300" always;
-        try_files $uri =404;
-    }
-
-    location /modules/ {
-        default_type application/json;
-        add_header Cache-Control "public, max-age=300" always;
-        try_files $uri =404;
-    }
-}
-```
-
-Serve JSON as `application/json`. If versioned `.ocp` artifacts are mirrored later, use `application/octet-stream` until a custom media type is standardized and `Cache-Control: public, max-age=31536000, immutable`; mirrored bytes must retain the registry digest. Index and module metadata use shorter caching because channel pointers and new versions may change. Static servers may provide ETags.
-
-Do not enable wildcard CORS without a concrete browser consumer requirement. The primary consumers are server-side/admin tooling. No production secret, tokenized private URL, domain automation, search endpoint, pagination layer, or API server belongs in this artifact.
-
-Registry availability is only needed for pre-install discovery/download. Runtime startup, migrations, and already installed modules make no registry request. The host's `modules.lock`, not this registry, remains authoritative for installed and enabled state.
+This deploy publishes Registry JSON metadata only. It does not download or
+mirror `.ocp` bundles. Artifact verification remains a pull-request publishing
+gate, and registry availability is never a runtime dependency for installed
+modules.

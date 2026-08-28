@@ -1,0 +1,14 @@
+---
+- name: Validate nginx configuration
+  ansible.builtin.command:
+    argv:
+      - nginx
+      - -t
+  changed_when: false
+  listen: Package registry nginx configuration changed
+
+- name: Reload nginx
+  ansible.builtin.systemd_service:
+    name: nginx
+    state: reloaded
+  listen: Package registry nginx configuration changed

@@ -1,0 +1,103 @@
+---
+- name: Bootstrap package registry host
+  hosts: packages_registry
+  become: true
+  serial: 1
+  vars_files:
+    - ../roles/packages_registry/defaults/main.yml
+  tasks:
+    - name: Install package registry operating-system prerequisites
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - certbot
+          - git
+          - nginx
+          - python3
+          - python3-venv
+        state: present
+        update_cache: true
+
+    - name: Ensure package registry service group exists
+      ansible.builtin.group:
+        name: "{{ packages_registry_service_group }}"
+        system: true
+        state: present
+
+    - name: Ensure package registry service user exists
+      ansible.builtin.user:
+        name: "{{ packages_registry_service_user }}"
+        group: "{{ packages_registry_service_group }}"
+        system: true
+        create_home: false
+        shell: /usr/sbin/nologin
+        state: present
+
+    - name: Create package registry base and tooling directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ item.owner }}"
+        group: "{{ item.group }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - path: "{{ packages_registry_root }}"
+          owner: root
+          group: "{{ packages_registry_service_group }}"
+          mode: "0755"
+        - path: "{{ packages_registry_root }}/tools"
+          owner: root
+          group: root
+          mode: "0755"
+        - path: "{{ packages_registry_repo_path }}"
+          owner: "{{ packages_registry_service_user }}"
+          group: "{{ packages_registry_service_group }}"
+          mode: "0755"
+        - path: "{{ packages_registry_releases_dir }}"
+          owner: "{{ packages_registry_service_user }}"
+          group: "{{ packages_registry_service_group }}"
+          mode: "0755"
+        - path: "{{ packages_registry_uv_cache_dir }}"
+          owner: "{{ packages_registry_service_user }}"
+          group: "{{ packages_registry_service_group }}"
+          mode: "0750"
+
+    - name: Create isolated uv tooling environment
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -m
+          - venv
+          - "{{ packages_registry_uv_venv }}"
+        creates: "{{ packages_registry_uv_venv }}/bin/python"
+
+    - name: Read installed uv version
+      ansible.builtin.command:
+        argv:
+          - "{{ packages_registry_uv_venv }}/bin/uv"
+          - --version
+      register: packages_registry_installed_uv
+      changed_when: false
+      failed_when: false
+
+    - name: Install the pinned uv version
+      ansible.builtin.command:
+        argv:
+          - "{{ packages_registry_uv_venv }}/bin/python"
+          - -m
+          - pip
+          - install
+          - --disable-pip-version-check
+          - "uv=={{ packages_registry_uv_version }}"
+      when: >-
+        packages_registry_installed_uv.rc != 0 or
+        packages_registry_installed_uv.stdout != 'uv ' ~ packages_registry_uv_version
+
+    - name: Verify pinned uv installation
+      ansible.builtin.command:
+        argv:
+          - "{{ packages_registry_uv_venv }}/bin/uv"
+          - --version
+      register: packages_registry_verified_uv
+      changed_when: false
+      failed_when: packages_registry_verified_uv.stdout != 'uv ' ~ packages_registry_uv_version
