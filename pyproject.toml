@@ -1,0 +1,26 @@
+[project]
+name = "open-city-planner-packages"
+version = "0.1.0"
+description = "Static registry tooling for Open City Planner modules"
+requires-python = ">=3.12"
+dependencies = [
+  "jsonschema==4.25.1",
+]
+
+[dependency-groups]
+dev = [
+  "pytest==8.4.2",
+  "ruff==0.12.11",
+]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]

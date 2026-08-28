@@ -1,0 +1,56 @@
+name: Registry
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: registry-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out registry source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Install pinned uv
+        run: python -m pip install "uv==0.12.5"
+
+      - name: Install locked development tools
+        run: uv sync --frozen
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Test
+        run: uv run pytest
+
+      - name: Validate registry source
+        run: uv run python scripts/validate_registry.py
+
+      - name: Enforce published release immutability
+        if: github.event_name == 'pull_request'
+        run: uv run python scripts/validate_registry.py --base-ref "origin/${{ github.base_ref }}"
+
+      - name: Rebuild static deployment artifact
+        run: uv run python scripts/build_registry.py --output dist
+
+      - name: Verify committed generated output
+        run: git diff --exit-code -- dist
+
+      - name: Check whitespace
+        run: git diff --check

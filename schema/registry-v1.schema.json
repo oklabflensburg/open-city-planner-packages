@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://packages.stadtplaner.oklabflensburg.de/schema/registry-v1.schema.json",
+  "title": "Open City Planner Static Registry Index v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "modules"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "modules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "publisher", "classification", "channels", "metadata"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+          },
+          "name": { "type": "string", "minLength": 1 },
+          "publisher": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "name"],
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" }
+            }
+          },
+          "classification": { "enum": ["first-party", "reviewed-community"] },
+          "channels": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "stable": { "$ref": "#/$defs/channelRelease" },
+              "beta": { "$ref": "#/$defs/channelRelease" },
+              "nightly": { "$ref": "#/$defs/channelRelease" }
+            }
+          },
+          "metadata": {
+            "type": "string",
+            "pattern": "^/modules/[a-z][a-z0-9]*(?:-[a-z0-9]+)*\\.json$"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "channelRelease": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "sha256"],
+      "properties": {
+        "version": { "type": "string" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    }
+  }
+}
