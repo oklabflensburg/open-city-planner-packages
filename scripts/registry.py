@@ -47,6 +47,20 @@ MODULE_KEYS = {
     "documentation_url",
     "versions",
 }
+PROTECTED_MODULE_FIELDS = {
+    "classification": (
+        "{module_id}: classification cannot change after publication "
+        "({existing} → {proposed})"
+    ),
+    "source_repository": (
+        '{module_id}: published source_repository is immutable; existing "{existing}", '
+        'proposed "{proposed}"'
+    ),
+    "license": (
+        "{module_id}: published license is immutable in registry schema v1; "
+        'existing "{existing}", proposed "{proposed}"'
+    ),
+}
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -444,6 +458,7 @@ def validate_immutability(
             raise RegistryValidationError(
                 f'{module_id}: published module metadata cannot be removed'
             )
+        _validate_module_provenance_immutability(current, base_module)
         current_releases = {release["version"]: release for release in current["versions"]}
         for base_release in base_module["versions"]:
             version = base_release["version"]
@@ -456,3 +471,31 @@ def validate_immutability(
                     f"{module_id}@{version}: published release metadata is immutable; "
                     "publish a new version"
                 )
+
+
+def _validate_module_provenance_immutability(
+    current: dict[str, Any], published: dict[str, Any]
+) -> None:
+    """Protect stable module identity while leaving presentation metadata editable."""
+
+    module_id = published["id"]
+    published_publisher_id = published["publisher"]["id"]
+    proposed_publisher_id = current["publisher"]["id"]
+    if proposed_publisher_id != published_publisher_id:
+        raise RegistryValidationError(
+            f'{module_id}: published publisher.id is immutable; existing '
+            f'"{published_publisher_id}", proposed "{proposed_publisher_id}"'
+        )
+
+    for field, error_template in PROTECTED_MODULE_FIELDS.items():
+        existing = published[field]
+        proposed = current[field]
+        if proposed == existing:
+            continue
+        raise RegistryValidationError(
+            error_template.format(
+                module_id=module_id,
+                existing=existing,
+                proposed=proposed,
+            )
+        )

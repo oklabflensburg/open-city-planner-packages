@@ -37,6 +37,16 @@ Registry v1 is a strict, static JSON data contract. Unknown schema versions and 
 
 `publisher.id` is stable metadata; it is not an account. The allowed public classifications are `first-party` and `reviewed-community`. Both receive identical technical validation, and classification never bypasses host security.
 
+## Immutability and protected provenance
+
+Every published `module ID + version` release object is immutable, including its artifact URL and digest, channel, bundle format, source commit/tag, and compatibility metadata. Corrections require a new version; published releases cannot be removed.
+
+After a module ID first appears on the base branch, its `id`, `publisher.id`, `classification`, `source_repository`, and Registry v1 `license` are protected. An ID change is treated as removal of the published module. Publisher display names are not identities. Protection prevents Registry publishing provenance from changing silently; it is not a runtime trust grant, and classification remains distribution/review metadata only.
+
+Registry v1 treats the module-level `license` as release-family provenance and therefore protects it. A project that genuinely changes license between releases needs a future release-level license model and an explicit schema/policy follow-up, not a silent module-level edit.
+
+Presentation metadata remains editable through an ordinary reviewed pull request: `name`, `description`, `homepage`, `documentation_url`, and `publisher.name`. These values may also be updated in the same pull request that adds a new release.
+
 Versions are complete SemVer. Each `id + version` is unique and immutable once published. Channels are `stable`, `beta`, and `nightly`; v1 implements no promotion service. `stable` releases use non-prerelease SemVer. A channel pointer may move to a newer release, but old release metadata remains unchanged.
 
 The artifact digest is exactly SHA-256 over the complete `.ocp` file: 64 lowercase hexadecimal characters. `source_commit` follows the host provenance contract and is a 40- or 64-character lowercase hexadecimal Git object ID. URLs are HTTPS without credentials, query tokens, or fragments. Artifact URLs must be versioned `.ocp` paths on the controlled registry host or GitHub Releases; first-party GitHub source and artifacts remain under `oklabflensburg`.

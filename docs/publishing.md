@@ -24,6 +24,8 @@ git diff --exit-code -- dist
 
 The metadata validator checks Registry v1 structure and publishing policy. The separate artifact gate compares the current registry with the PR base, so only previously unpublished `module ID + version` identities are downloaded. Published releases are skipped by this gate and remain protected by the independent immutability check. All channels use the same artifact-verification contract.
 
+After a module's first merge, its publisher ID, classification, source repository, and Registry v1 module-level license are protected provenance. Display name, module name/description, homepage, documentation URL, and publisher display name remain editable in reviewed pull requests. A real publisher change, repository transfer, reclassification, or license-family change requires an explicit Registry governance/schema follow-up; do not rewrite the existing module metadata silently.
+
 ## `.ocp` v1 verification contract
 
 Before proposing a release, contributors should verify the local artifact using the Open City Planner host contract:

@@ -48,6 +48,8 @@ uv run python scripts/validate_registry.py --base-ref origin/main
 
 Registry pull requests pass separate gates for metadata/schema policy, published-release immutability, the SHA-256 and official pinned `.ocp` host verifier for every new release, and deterministic static output. Artifact verification streams one release at a time with bounded network access and runs only the host's read-only `verify` command—never `install`.
 
+After first publication, stable module provenance (publisher ID, classification, source repository, and Registry v1 license) is protected, while presentation metadata remains editable through reviewed pull requests.
+
 A contribution adds one file such as `registry/modules/example.json`; see [the format](docs/registry-format.md) and [publishing flow](docs/publishing.md). Registry compatibility fields are discovery metadata copied from the bundle manifest. The embedded manifest remains authoritative during verification and installation.
 
 ## Status and scope

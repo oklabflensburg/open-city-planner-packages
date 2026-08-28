@@ -208,13 +208,126 @@ def test_immutable_release_cannot_change_digest(module: dict) -> None:
         validate_immutability([current], [module])
 
 
+def test_published_publisher_id_cannot_change(module: dict) -> None:
+    current = copy.deepcopy(module)
+    current["publisher"]["id"] = "different-org"
+    with pytest.raises(RegistryValidationError, match="published publisher.id is immutable"):
+        validate_immutability([current], [module])
+
+
+def test_publisher_display_name_can_change(module: dict) -> None:
+    current = copy.deepcopy(module)
+    current["publisher"]["name"] = "OK Lab Flensburg Foundation"
+    validate_module(current, "fixture")
+    validate_immutability([current], [module])
+
+
+def test_classification_upgrade_cannot_change(module: dict) -> None:
+    published = copy.deepcopy(module)
+    published["classification"] = "reviewed-community"
+    current = copy.deepcopy(published)
+    current["classification"] = "first-party"
+    with pytest.raises(
+        RegistryValidationError,
+        match="classification cannot change after publication.*reviewed-community → first-party",
+    ):
+        validate_immutability([current], [published])
+
+
+def test_classification_downgrade_cannot_change(module: dict) -> None:
+    current = copy.deepcopy(module)
+    current["classification"] = "reviewed-community"
+    with pytest.raises(
+        RegistryValidationError,
+        match="classification cannot change after publication.*first-party → reviewed-community",
+    ):
+        validate_immutability([current], [module])
+
+
+def test_published_source_repository_cannot_change(module: dict) -> None:
+    current = copy.deepcopy(module)
+    current["source_repository"] = "https://github.com/oklabflensburg/renamed-module"
+    with pytest.raises(RegistryValidationError, match="published source_repository is immutable"):
+        validate_immutability([current], [module])
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("name", "Improved Energy Analysis"),
+        ("description", "An improved description."),
+        ("homepage", "https://example.org/energy-analysis"),
+        ("documentation_url", "https://docs.example.org/energy-analysis"),
+    ],
+)
+def test_presentation_metadata_can_change(module: dict, field: str, value: str) -> None:
+    current = copy.deepcopy(module)
+    current[field] = value
+    validate_module(current, "fixture")
+    validate_immutability([current], [module])
+
+
+def test_registry_v1_module_license_cannot_change(module: dict) -> None:
+    current = copy.deepcopy(module)
+    current["license"] = "MIT"
+    with pytest.raises(
+        RegistryValidationError, match="published license is immutable in registry schema v1"
+    ):
+        validate_immutability([current], [module])
+
+
+def test_existing_release_artifact_url_remains_immutable(module: dict) -> None:
+    current = copy.deepcopy(module)
+    current["versions"][0]["artifact"]["url"] = (
+        "https://github.com/oklabflensburg/renamed-module/releases/download/"
+        "v1.4.0/energy-analysis-1.4.0.ocp"
+    )
+    with pytest.raises(RegistryValidationError, match="release metadata is immutable"):
+        validate_immutability([current], [module])
+
+
+def test_existing_release_requires_remains_immutable(module: dict) -> None:
+    current = copy.deepcopy(module)
+    current["versions"][0]["requires"]["host"] = ">=0.3.0,<1.0.0"
+    with pytest.raises(RegistryValidationError, match="release metadata is immutable"):
+        validate_immutability([current], [module])
+
+
 def test_immutable_release_can_add_version(module: dict) -> None:
     current = copy.deepcopy(module)
     new_release = copy.deepcopy(module["versions"][0])
     new_release["version"] = "1.4.1"
+    new_release["artifact"]["url"] = new_release["artifact"]["url"].replace(
+        "1.4.0", "1.4.1"
+    )
     new_release["artifact"]["sha256"] = "a" * 64
     current["versions"].append(new_release)
+    validate_module(current, "fixture")
     validate_immutability([current], [module])
+
+
+def test_presentation_update_and_new_release_are_allowed(module: dict) -> None:
+    current = copy.deepcopy(module)
+    current["description"] = "Clearer presentation metadata."
+    new_release = copy.deepcopy(module["versions"][0])
+    new_release["version"] = "1.5.0"
+    new_release["artifact"]["url"] = new_release["artifact"]["url"].replace(
+        "1.4.0", "1.5.0"
+    )
+    new_release["artifact"]["sha256"] = "b" * 64
+    current["versions"].append(new_release)
+    validate_module(current, "fixture")
+    validate_immutability([current], [module])
+
+
+def test_new_module_provenance_is_unrestricted_by_baseline(module: dict) -> None:
+    current = copy.deepcopy(module)
+    current["publisher"] = {"id": "example-org", "name": "Example Foundation"}
+    current["classification"] = "reviewed-community"
+    current["source_repository"] = "https://github.com/example-org/energy-analysis"
+    current["license"] = "MIT"
+    validate_module(current, "fixture")
+    validate_immutability([current], [])
 
 
 def test_initial_repository_without_registry_is_empty_baseline() -> None:
