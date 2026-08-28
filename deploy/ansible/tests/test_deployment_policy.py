@@ -139,6 +139,12 @@ def test_example_inventory_contains_no_host_or_secret() -> None:
     assert "89.58." not in inventory
 
 
+def test_remote_module_uploads_use_sticky_system_tmp() -> None:
+    config = read(ANSIBLE / "ansible.cfg")
+    assert "remote_tmp = /tmp" in config
+    assert "host_key_checking = True" in config
+
+
 def test_deployment_does_not_add_an_application_runtime() -> None:
     deployment = "\n".join(
         read(path)
