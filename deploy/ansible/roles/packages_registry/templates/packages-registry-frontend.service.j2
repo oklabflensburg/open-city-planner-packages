@@ -1,0 +1,26 @@
+[Unit]
+Description=Open City Planner Packages web explorer
+After=network.target packages-registry-backend.service
+Requires=packages-registry-backend.service
+
+[Service]
+Type=simple
+User={{ packages_registry_service_user }}
+Group={{ packages_registry_service_group }}
+WorkingDirectory={{ packages_registry_current_path }}/web/frontend
+Environment=HOST=127.0.0.1
+Environment=PORT={{ packages_registry_frontend_port }}
+Environment=NUXT_API_BASE_INTERNAL=http://127.0.0.1:{{ packages_registry_backend_port }}/api
+Environment=NUXT_PUBLIC_API_BASE=/api
+Environment=NUXT_PUBLIC_SITE_URL=https://{{ packages_registry_domain }}
+ExecStart={{ packages_registry_node_binary }} {{ packages_registry_current_path }}/web/frontend/.output/server/index.mjs
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths={{ packages_registry_current_path }}
+
+[Install]
+WantedBy=multi-user.target

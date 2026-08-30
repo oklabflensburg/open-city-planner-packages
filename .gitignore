@@ -4,4 +4,8 @@ __pycache__/
 .ruff_cache/
 _host-verifier/
 deploy/ansible/inventory/production.ini
+web/frontend/node_modules/
+web/frontend/.nuxt/
+web/frontend/.output/
+web/frontend/coverage/
 *.py[cod]

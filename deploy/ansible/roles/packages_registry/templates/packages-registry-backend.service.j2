@@ -1,0 +1,21 @@
+[Unit]
+Description=Open City Planner Packages API
+After=network.target
+
+[Service]
+Type=simple
+User={{ packages_registry_service_user }}
+Group={{ packages_registry_service_group }}
+WorkingDirectory={{ packages_registry_current_path }}
+Environment=PACKAGES_REGISTRY_SOURCE={{ packages_registry_current_path }}/registry
+ExecStart={{ packages_registry_current_path }}/.venv/bin/uvicorn web.backend.app.main:app --host 127.0.0.1 --port {{ packages_registry_backend_port }}
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths={{ packages_registry_current_path }}
+
+[Install]
+WantedBy=multi-user.target

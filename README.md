@@ -1,6 +1,6 @@
 # Open City Planner Packages
 
-**Static package registry for discoverable, reviewable and verifiable Open City Planner modules.**
+**Public package explorer and authoritative Registry v1 source for discoverable, reviewable and verifiable Open City Planner modules.**
 
 [Open City Planner](https://github.com/oklabflensburg/open-city-planner) is an open-source Web GIS and civic-tech platform for urban planning, OpenStreetMap and public-data workflows. This repository provides the **module package registry and publishing layer** for its modular ecosystem.
 
@@ -36,7 +36,7 @@ This repository does **not** contain:
 
 - the Open City Planner runtime;
 - module execution or installer logic;
-- a dynamic marketplace backend;
+- a database-backed marketplace or write API;
 - a dependency resolver;
 - an API server;
 - automatic module installation or updates.
@@ -48,7 +48,7 @@ That separation keeps installed modules independent from registry availability a
 | Component | Responsibility |
 | --- | --- |
 | [`open-city-planner`](https://github.com/oklabflensburg/open-city-planner) | Web GIS host, runtime, SDK, `.ocp` v1 bundle reader, verification, installation and authoritative `modules.lock` state |
-| **`open-city-planner-packages`** | Registry source, metadata schema, static index, validation, review policy and deployable package discovery output |
+| **`open-city-planner-packages`** | Registry source, read-only search API, public package explorer, metadata schema, static index, validation, review policy and deployable package discovery output |
 | Module repositories | Module source code, tests and immutable `.ocp` v1 releases |
 
 A typical installation flow is:
@@ -78,6 +78,8 @@ dist/                       Committed generated deployment artifact
 docs/                       Format, publishing, review and deployment policy
 tests/                      Validator, security, immutability and build tests
 deploy/                     Reproducible production deployment
+web/backend/                Read-only FastAPI/Pydantic Registry API
+web/frontend/               Nuxt 4/Tailwind CSS 4 SSR package explorer
 ```
 
 Never edit `dist/` manually. It is generated from `registry/` and contains a compact `index.json` plus canonical copies of module metadata.
@@ -116,6 +118,10 @@ git diff --exit-code -- dist
 git diff --check
 ```
 
+The web application is documented in [web/README.md](web/README.md). In short,
+run `uv run uvicorn web.backend.app.main:app --reload` from the repository root
+and `pnpm dev` from `web/frontend/` in a second terminal.
+
 To validate immutable release history against an existing published baseline:
 
 ```bash
@@ -136,8 +142,9 @@ Pull requests run validation, Ansible policy tests and artifact verification onl
 
 The deployment resolves that SHA to an immutable release, rebuilds and validates
 `dist/`, automatically mirrors every missing reviewed `.ocp` release into the
-persistent artifact tree, atomically switches the active release, and verifies
-the Registry plus every newly published artifact through the public endpoint.
+persistent artifact tree, builds the API and SSR frontend from the same SHA,
+atomically switches the active release, and verifies the explorer, API, Registry,
+and every newly published artifact through the public endpoint.
 Rollback and release retention never remove immutable artifacts. The separate
 publication playbook remains available for recovery and operations, but normal
 reviewed merges require no manual publication step.
@@ -171,7 +178,7 @@ Open City Planner · Web GIS · GIS · civic tech · open data · OpenStreetMap 
 
 ## Status and scope
 
-Registry v1 is a static data contract for `packages.stadtplaner.oklabflensburg.de`. It intentionally introduces no runtime registry client, automatic installation or updates, PKI, dependency solving, module extraction or second `.ocp`/runtime-manifest format.
+Registry v1 remains the static authoritative data contract for `packages.stadtplaner.oklabflensburg.de`. The read-only API and explorer do not introduce automatic installation or updates, PKI, dependency solving, module extraction or a second `.ocp`/runtime-manifest format.
 
 ## License
 
