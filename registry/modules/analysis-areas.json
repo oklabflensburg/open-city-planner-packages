@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "id": "analysis-areas",
+  "name": "Analysis Areas",
+  "description": "Spatial analysis areas and municipal statistics for Open City Planner.",
+  "publisher": {
+    "id": "oklabflensburg",
+    "name": "OK Lab Flensburg"
+  },
+  "classification": "first-party",
+  "source_repository": "https://github.com/oklabflensburg/ocp-module-analysis-areas",
+  "license": "AGPL-3.0-only",
+  "versions": [
+    {
+      "version": "1.0.0",
+      "channel": "stable",
+      "artifact": {
+        "url": "https://github.com/oklabflensburg/ocp-module-analysis-areas/releases/download/v1.0.0/analysis-areas-1.0.0.ocp",
+        "sha256": "7006f31ea73f40e38f63d2065652c27ad5d3391ddcc8cfad2f149993efef3dcf"
+      },
+      "bundle_format_version": 1,
+      "source_commit": "06afb05fed5dab8426e0e52392d3716ba46c980a",
+      "source_tag": "v1.0.0",
+      "requires": {
+        "host": ">=0.2.0,<1.0.0",
+        "sdk": ">=1.9.0,<2.0.0",
+        "modules": {}
+      }
+    }
+  ]
+}
