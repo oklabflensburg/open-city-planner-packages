@@ -8,15 +8,23 @@ import type {
   SearchResult,
 } from '~/types/api'
 
-type Fetcher = <T>(url: string, options?: { query?: Record<string, unknown> }) => Promise<T>
+type Fetcher = <T>(
+  url: string,
+  options?: { query?: Record<string, unknown>; signal?: AbortSignal },
+) => Promise<T>
 
 export function createApiClient(fetcher: Fetcher, baseURL: string) {
   const endpoint = (path: string) => `${baseURL.replace(/\/$/, '')}/v1${path}`
+  const compactQuery = (values: Record<string, unknown>) => Object.fromEntries(
+    Object.entries(values).filter(([, value]) => value !== '' && value !== undefined),
+  )
   return {
     packages: (filters: PackageFilters = {}) =>
-      fetcher<PackagePage>(endpoint('/packages'), { query: filters as Record<string, unknown> }),
-    search: (q: string, limit = 8) =>
-      fetcher<SearchResult>(endpoint('/search'), { query: { q, limit } }),
+      fetcher<PackagePage>(endpoint('/packages'), {
+        query: compactQuery(filters as Record<string, unknown>),
+      }),
+    search: (q: string, limit = 8, signal?: AbortSignal) =>
+      fetcher<SearchResult>(endpoint('/search'), { query: { q, limit }, signal }),
     package: (id: string) => fetcher<PackageDetail>(endpoint(`/packages/${encodeURIComponent(id)}`)),
     versions: (id: string) =>
       fetcher<PackageRelease[]>(endpoint(`/packages/${encodeURIComponent(id)}/versions`)),

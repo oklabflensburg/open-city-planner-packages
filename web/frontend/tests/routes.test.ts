@@ -31,4 +31,16 @@ describe('required package explorer routes', () => {
     expect(config).toContain('ssr: true')
     expect(readFileSync(resolve(app, 'composables/usePageSeo.ts'), 'utf8')).toContain('canonical')
   })
+
+  it('ships the search-first reusable explorer components', () => {
+    for (const component of [
+      'components/PackageListItem.vue',
+      'components/SearchCommandPalette.vue',
+      'components/SearchResultList.vue',
+      'components/PackageMetadataRail.vue',
+      'components/VersionSelector.vue',
+      'components/CopyValue.vue',
+      'components/KeyboardHint.vue',
+    ]) expect(existsSync(resolve(app, component))).toBe(true)
+  })
 })
