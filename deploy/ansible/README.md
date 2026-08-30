@@ -32,6 +32,8 @@ ansible -i inventory/production.ini packages_registry -m ping
 Bootstrap installs Git, Python/venv, Nginx, CA certificates, Certbot, the
 unprivileged `ocp-packages` account, deployment directories, uv 0.12.5, the
 checksum-pinned Node.js 22.22.3 archive, and pnpm 11.22.0 through Corepack.
+Normal deployments also provision this pinned web runtime idempotently, so an
+existing Registry host can upgrade without a separate bootstrap run.
 
 ```bash
 uv run ansible-playbook -i inventory/production.ini playbooks/bootstrap.yml

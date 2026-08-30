@@ -15,7 +15,6 @@
           - nginx
           - python3
           - python3-venv
-          - xz-utils
         state: present
         update_cache: true
 
@@ -79,33 +78,8 @@
           group: "{{ packages_registry_service_group }}"
           mode: "0750"
 
-    - name: Download pinned Node.js runtime archive
-      ansible.builtin.get_url:
-        url: "https://nodejs.org/dist/v{{ packages_registry_node_version }}/node-v{{ packages_registry_node_version }}-linux-x64.tar.xz"
-        dest: "{{ packages_registry_root }}/tools/node-v{{ packages_registry_node_version }}-linux-x64.tar.xz"
-        checksum: "sha256:{{ packages_registry_node_archive_sha256 }}"
-        owner: root
-        group: root
-        mode: "0644"
-
-    - name: Install pinned Node.js runtime
-      ansible.builtin.unarchive:
-        src: "{{ packages_registry_root }}/tools/node-v{{ packages_registry_node_version }}-linux-x64.tar.xz"
-        dest: "{{ packages_registry_root }}/tools"
-        remote_src: true
-        creates: "{{ packages_registry_node_binary }}"
-
-    - name: Activate pinned pnpm with Corepack
-      ansible.builtin.command:
-        argv:
-          - "{{ packages_registry_corepack_binary }}"
-          - install
-          - --global
-          - "pnpm@{{ packages_registry_pnpm_version }}"
-      environment:
-        COREPACK_HOME: "{{ packages_registry_root }}/.corepack"
-      become_user: "{{ packages_registry_service_user }}"
-      changed_when: true
+    - name: Install pinned package explorer tooling
+      ansible.builtin.import_tasks: ../roles/packages_registry/tasks/web_tooling.yml
 
     - name: Verify pinned pnpm installation
       ansible.builtin.command:

@@ -233,6 +233,30 @@ def test_bootstrap_uses_pinned_uv_without_download_script() -> None:
     assert "| sh" not in bootstrap
 
 
+def test_normal_deploy_self_provisions_pinned_web_runtime() -> None:
+    tasks = read(ROLE / "tasks" / "main.yml")
+    bootstrap = read(ANSIBLE / "playbooks" / "bootstrap.yml")
+    tooling = read(ROLE / "tasks" / "web_tooling.yml")
+    defaults = yaml.safe_load(read(ROLE / "defaults" / "main.yml"))
+    assert defaults["packages_registry_node_version"] == "22.22.3"
+    assert defaults["packages_registry_pnpm_version"] == "11.22.0"
+    assert defaults["packages_registry_node_archive_sha256"] == (
+        "2e5d13569282d016861fae7c8f935e741693c269101a5bebcf761a5376d1f99f"
+    )
+    assert "ansible.builtin.import_tasks: web_tooling.yml" in tasks
+    assert tasks.index("Provision pinned package explorer tooling") < tasks.index(
+        "Require pinned Node.js runtime"
+    )
+    assert (
+        "ansible.builtin.import_tasks: ../roles/packages_registry/tasks/web_tooling.yml"
+        in bootstrap
+    )
+    assert "checksum: \"sha256:{{ packages_registry_node_archive_sha256 }}\"" in tooling
+    assert "- enable\n      - pnpm" in tooling
+    assert '"pnpm@{{ packages_registry_pnpm_version }}"' in tooling
+    assert "curl" not in tooling and "| sh" not in tooling
+
+
 def test_nginx_validation_smoke_rollback_and_retention_are_present() -> None:
     tasks = read(ROLE / "tasks" / "main.yml")
     handlers = read(ROLE / "handlers" / "main.yml")
