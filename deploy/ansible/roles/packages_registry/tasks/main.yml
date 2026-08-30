@@ -10,6 +10,14 @@
       - packages_registry_repo_path.startswith(packages_registry_root ~ '/')
       - packages_registry_releases_dir.startswith(packages_registry_root ~ '/')
       - packages_registry_current_path.startswith(packages_registry_root ~ '/')
+      - packages_registry_artifact_root.startswith(packages_registry_root ~ '/')
+      - "'..' not in packages_registry_artifact_root.split('/')"
+      - packages_registry_artifact_root != packages_registry_repo_path
+      - packages_registry_artifact_root != packages_registry_releases_dir
+      - packages_registry_artifact_root != packages_registry_current_path
+      - not packages_registry_artifact_root.startswith(packages_registry_repo_path ~ '/')
+      - not packages_registry_artifact_root.startswith(packages_registry_releases_dir ~ '/')
+      - not packages_registry_artifact_root.startswith(packages_registry_current_path ~ '/')
     fail_msg: Package registry deployment variables violate a required safety invariant.
 
 - name: Ensure package registry service group exists
@@ -44,6 +52,14 @@
       group: "{{ packages_registry_service_group }}"
       mode: "0755"
     - path: "{{ packages_registry_releases_dir }}"
+      owner: "{{ packages_registry_service_user }}"
+      group: "{{ packages_registry_service_group }}"
+      mode: "0755"
+    - path: "{{ packages_registry_artifact_root }}"
+      owner: "{{ packages_registry_service_user }}"
+      group: "{{ packages_registry_service_group }}"
+      mode: "0755"
+    - path: "{{ packages_registry_artifact_root }}/modules"
       owner: "{{ packages_registry_service_user }}"
       group: "{{ packages_registry_service_group }}"
       mode: "0755"

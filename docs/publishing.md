@@ -11,7 +11,9 @@ The release pipeline is deliberately explicit:
 7. Run local registry validation and the deterministic build.
 8. Registry PR CI downloads every new release, checks its digest, and runs the pinned host verifier.
 9. Obtain registry review and merge only after all CI gates pass.
-10. Build and atomically deploy `dist/` as one release.
+10. Build and atomically deploy `dist/` as one Registry release.
+11. Explicitly mirror the already reviewed bytes outside the Registry release tree.
+12. In a second reviewed pull request, promote `artifact.url` to the canonical mirror URL.
 
 For example:
 
@@ -59,3 +61,35 @@ Updating the verifier pin requires a normal reviewed pull request justified by a
 Reviewed-community modules follow the same technical pipeline. The additional work is human verification of publisher, public/reviewable source repository, license, maintainer provenance, immutable artifact location, and review evidence; there is no separate community registry or private-artifact credential flow.
 
 After discovery, a future admin-side consumer may download a selected `id@version`, verify SHA-256, run `.ocp` verification, and invoke the existing installer. This repository does not implement that consumer, runtime downloads, automatic installation, or transitive dependency selection.
+
+## Immutable artifact mirror and bootstrap flow
+
+Registry v1 uses bootstrap Option A. It needs no staging namespace or additional schema field:
+
+1. **Phase 1:** publish the immutable GitHub Release URL and digest in a Registry pull request. CI downloads that exact URL, verifies SHA-256, and runs the pinned Host verifier.
+2. **Phase 2:** after merge and Registry deployment, explicitly publish the same bytes into the persistent Registry mirror with `playbooks/publish-artifact.yml`.
+3. **Phase 3:** verify the public mirror URL and digest, then open a second reviewed Registry pull request that changes only `artifact.url` to the canonical Registry URL.
+
+The one-time URL promotion is narrowly validated: GitHub Release to `/modules/<id>/<version>/<id>-<version>.ocp`, with the digest and every other release field unchanged. Once promoted, the mirror URL is immutable. GitHub repository, source commit, and source tag remain the provenance record.
+
+The production publisher intentionally reuses the merged Registry metadata and the same bounded downloader, redirect policy, and SHA-256 implementation as the pull-request artifact gate. The exact URL and digest were already accepted by the pinned Host verifier before merge; production therefore does not install a second Host runtime merely to repeat parsing. Operators who have the pinned verifier checkout prepared may additionally pass `--host-verifier-root` to `scripts/publish_artifacts.py`; this still invokes only `verify`.
+
+From `deploy/ansible`, the operator flow for `analysis-areas@1.0.0` is:
+
+```bash
+# 1. Merge the Registry PR containing the GitHub Release URL.
+# 2. Deploy that exact reviewed Registry SHA.
+uv run ansible-playbook -i inventory/production.ini playbooks/deploy.yml \
+  -e packages_registry_deploy_ref=<40-character-registry-sha>
+
+# 3. Explicitly mirror the selected release from Registry metadata.
+uv run ansible-playbook -i inventory/production.ini playbooks/publish-artifact.yml \
+  -e registry_ref=<40-character-registry-sha> \
+  -e module_id=analysis-areas \
+  -e version=1.0.0
+
+# 4. Verify the public URL and SHA-256.
+# 5. Open a second reviewed PR changing only artifact.url to the mirror URL.
+```
+
+The publisher derives the target path from validated module ID and SemVer. It downloads into a randomized hidden `.partial` file in the final filesystem, checks the Registry digest, optionally calls the shared Host verifier, flushes the complete file, and publishes with an atomic no-clobber link. An existing file with the same digest is an idempotent success; any different content fails without overwrite. There is no force option, repacking, garbage collector, or automatic publication during normal Registry deployment.

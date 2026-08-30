@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -286,6 +287,47 @@ def test_existing_release_artifact_url_remains_immutable(module: dict) -> None:
         validate_immutability([current], [module])
 
 
+def test_github_release_can_promote_once_to_canonical_registry_mirror(module: dict) -> None:
+    current = copy.deepcopy(module)
+    current["versions"][0]["artifact"]["url"] = (
+        "https://packages.stadtplaner.oklabflensburg.de/modules/"
+        "energy-analysis/1.4.0/energy-analysis-1.4.0.ocp"
+    )
+    validate_module(current, "fixture")
+    validate_immutability([current], [module])
+
+
+def test_mirror_promotion_cannot_change_digest(module: dict) -> None:
+    current = copy.deepcopy(module)
+    current["versions"][0]["artifact"] = {
+        "url": (
+            "https://packages.stadtplaner.oklabflensburg.de/modules/"
+            "energy-analysis/1.4.0/energy-analysis-1.4.0.ocp"
+        ),
+        "sha256": "a" * 64,
+    }
+    with pytest.raises(RegistryValidationError, match="release metadata is immutable"):
+        validate_immutability([current], [module])
+
+
+def test_published_mirror_cannot_move_back_to_github(module: dict) -> None:
+    published = copy.deepcopy(module)
+    published["versions"][0]["artifact"]["url"] = (
+        "https://packages.stadtplaner.oklabflensburg.de/modules/"
+        "energy-analysis/1.4.0/energy-analysis-1.4.0.ocp"
+    )
+    with pytest.raises(RegistryValidationError, match="release metadata is immutable"):
+        validate_immutability([module], [published])
+
+
+def test_registry_mirror_url_must_use_canonical_filename(module: dict) -> None:
+    module["versions"][0]["artifact"]["url"] = (
+        "https://packages.stadtplaner.oklabflensburg.de/modules/"
+        "energy-analysis/1.4.0/other-name.ocp"
+    )
+    invalid(module, "hosting policy")
+
+
 def test_existing_release_requires_remains_immutable(module: dict) -> None:
     current = copy.deepcopy(module)
     current["versions"][0]["requires"]["host"] = ">=0.3.0,<1.0.0"
@@ -332,7 +374,14 @@ def test_new_module_provenance_is_unrestricted_by_baseline(module: dict) -> None
 
 def test_initial_repository_without_registry_is_empty_baseline() -> None:
     repository = Path(__file__).parents[1]
-    assert load_registry_from_git("main", repository) == []
+    root_commit = subprocess.run(
+        ["git", "rev-list", "--max-parents=0", "HEAD"],
+        cwd=repository,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert load_registry_from_git(root_commit, repository) == []
 
 
 def test_published_release_cannot_be_removed(module: dict) -> None:

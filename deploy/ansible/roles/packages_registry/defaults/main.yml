@@ -6,6 +6,7 @@ packages_registry_root: /opt/open-city-planner-packages
 packages_registry_repo_path: "{{ packages_registry_root }}/repo"
 packages_registry_releases_dir: "{{ packages_registry_root }}/releases"
 packages_registry_current_path: "{{ packages_registry_root }}/current"
+packages_registry_artifact_root: "{{ packages_registry_root }}/artifacts"
 packages_registry_uv_venv: "{{ packages_registry_root }}/tools/uv"
 packages_registry_uv_cache_dir: "{{ packages_registry_root }}/.uv-cache"
 

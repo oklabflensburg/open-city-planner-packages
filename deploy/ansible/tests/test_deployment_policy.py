@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import yaml
+from jinja2 import Environment, StrictUndefined
 
 ROOT = Path(__file__).resolve().parents[3]
 ANSIBLE = ROOT / "deploy" / "ansible"
@@ -9,6 +10,20 @@ ROLE = ANSIBLE / "roles" / "packages_registry"
 
 def read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def render_nginx() -> str:
+    template = Environment(undefined=StrictUndefined, autoescape=False).from_string(
+        read(ROLE / "templates" / "packages-registry.nginx.conf.j2")
+    )
+    return template.render(
+        packages_registry_domain="packages.example.test",
+        packages_registry_acme_webroot="/var/www/acme",
+        packages_registry_certificate_name="packages.example.test",
+        packages_registry_current_path="/opt/registry/current",
+        packages_registry_artifact_root="/opt/registry/artifacts",
+        packages_registry_nginx_site_name="packages",
+    )
 
 
 def test_all_ansible_yaml_is_parseable() -> None:
@@ -36,6 +51,7 @@ def test_role_structure_and_required_defaults() -> None:
         "packages_registry_root",
         "packages_registry_releases_dir",
         "packages_registry_current_path",
+        "packages_registry_artifact_root",
         "packages_registry_service_user",
         "packages_registry_service_group",
         "packages_registry_domain",
@@ -50,6 +66,9 @@ def test_role_structure_and_required_defaults() -> None:
     assert defaults["packages_registry_service_user"] != "root"
     assert defaults["packages_registry_release_retention"] >= 2
     assert defaults["packages_registry_uv_version"] == "0.12.5"
+    assert defaults["packages_registry_artifact_root"] == (
+        "{{ packages_registry_root }}/artifacts"
+    )
 
 
 def test_immutable_release_is_built_before_atomic_activation() -> None:
@@ -87,11 +106,15 @@ def test_validation_gates_are_mandatory_except_test_suite() -> None:
 
 
 def test_nginx_is_static_tls_only_with_required_headers() -> None:
-    nginx = read(ROLE / "templates" / "packages-registry.nginx.conf.j2")
-    assert "server_name {{ packages_registry_domain }};" in nginx
-    assert "root {{ packages_registry_current_path }}/dist;" in nginx
+    nginx = render_nginx()
+    assert "{{" not in nginx
+    assert "server_name packages.example.test;" in nginx
+    assert "root /opt/registry/current/dist;" in nginx
     assert "default_type application/json;" in nginx
+    assert "alias /opt/registry/artifacts/modules/$1/$2/$1-$2.ocp;" in nginx
+    assert "default_type application/octet-stream;" in nginx
     assert 'Cache-Control "public, max-age=300"' in nginx
+    assert 'Cache-Control "public, max-age=31536000, immutable"' in nginx
     assert 'X-Content-Type-Options "nosniff"' in nginx
     assert "try_files $uri =404;" in nginx
     assert "autoindex off;" in nginx
@@ -99,6 +122,46 @@ def test_nginx_is_static_tls_only_with_required_headers() -> None:
     assert "proxy_pass" not in nginx
     assert "Access-Control-Allow-Origin" not in nginx
     assert "/index.html" not in nginx
+    assert "autoindex on" not in nginx
+
+
+def test_artifact_store_is_persistent_read_only_web_content() -> None:
+    defaults = yaml.safe_load(read(ROLE / "defaults" / "main.yml"))
+    tasks = read(ROLE / "tasks" / "main.yml")
+    bootstrap = read(ANSIBLE / "playbooks" / "bootstrap.yml")
+    artifact_root = defaults["packages_registry_artifact_root"]
+    assert artifact_root == "{{ packages_registry_root }}/artifacts"
+    assert "packages_registry_artifact_root.startswith(packages_registry_root ~ '/')" in tasks
+    assert "not packages_registry_artifact_root.startswith(packages_registry_releases_dir" in tasks
+    assert 'path: "{{ packages_registry_artifact_root }}"' in tasks
+    assert 'path: "{{ packages_registry_artifact_root }}/modules"' in tasks
+    assert 'mode: "0755"' in tasks
+    assert 'path: "{{ packages_registry_artifact_root }}"' in bootstrap
+    assert "owner: www-data" not in tasks
+
+
+def test_explicit_publish_playbook_derives_target_from_registry_metadata() -> None:
+    playbook = yaml.safe_load(read(ANSIBLE / "playbooks" / "publish-artifact.yml"))
+    tasks_text = read(ROLE / "tasks" / "publish_artifact.yml")
+    tasks = yaml.safe_load(tasks_text)
+    by_name = {task["name"]: task for task in tasks}
+    assert playbook[0]["roles"][0]["tasks_from"] == "publish_artifact"
+    assertions = by_name["Require explicit immutable artifact publication inputs"][
+        "ansible.builtin.assert"
+    ]["that"]
+    assert "registry_ref is match('^[0-9a-f]{40}$')" in assertions
+    publish_argv = by_name[
+        "Publish selected immutable artifact from reviewed Registry metadata"
+    ]["ansible.builtin.command"]["argv"]
+    assert "scripts/publish_artifacts.py" in publish_argv
+    assert "--module" in publish_argv and "{{ module_id }}" in publish_argv
+    assert "--version" in publish_argv and "{{ version }}" in publish_argv
+    assert "--artifact-root" in publish_argv
+    assert "target" not in " ".join(publish_argv)
+    assert "--force" not in tasks_text
+    assert "--overwrite" not in tasks_text
+    assert "install" not in publish_argv
+    assert "enable" not in publish_argv
 
 
 def test_bootstrap_uses_pinned_uv_without_download_script() -> None:
@@ -128,6 +191,19 @@ def test_nginx_validation_smoke_rollback_and_retention_are_present() -> None:
     assert "packages_registry_protected_release_paths" in tasks
     assert "nginx" in handlers and "-t" in handlers
     assert handlers.index("Validate nginx configuration") < handlers.index("Reload nginx")
+
+
+def test_release_retention_cannot_prune_persistent_artifacts() -> None:
+    tasks = yaml.safe_load(read(ROLE / "tasks" / "main.yml"))
+    by_name = {task["name"]: task for task in tasks}
+    find_task = by_name["Find versioned package registry releases"]["ansible.builtin.find"]
+    prune_task = by_name["Prune old inactive package registry releases"][
+        "ansible.builtin.file"
+    ]
+    assert find_task["paths"] == "{{ packages_registry_releases_dir }}"
+    assert prune_task["path"] == "{{ item.path }}"
+    assert "packages_registry_artifact_root" not in str(find_task)
+    assert "packages_registry_artifact_root" not in str(prune_task)
 
 
 def test_example_inventory_contains_no_host_or_secret() -> None:
@@ -160,7 +236,6 @@ def test_deployment_does_not_add_an_application_runtime() -> None:
         "redis",
         "docker",
         "nodejs",
-        ".ocp",
     )
     for value in forbidden:
         assert value not in deployment

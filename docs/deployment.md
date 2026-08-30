@@ -2,8 +2,9 @@
 
 The package registry is a static, deterministically built release artifact tree.
 Ansible deploys an explicit Git ref as an immutable commit SHA, validates the
-resulting `dist/`, switches one atomic `current` symlink, and Nginx serves only
-`current/dist`. No application runtime participates in deployment or serving.
+resulting `dist/`, and switches one atomic `current` symlink. Nginx serves JSON
+from `current/dist` and immutable `.ocp` bytes from a separate persistent store.
+No application runtime participates in deployment or serving.
 
 The complete operator runbook, variables, bootstrap, TLS workflow, rollback,
 retention, permissions, and troubleshooting commands live in
@@ -33,15 +34,19 @@ The target layout is:
 /opt/open-city-planner-packages/
 ├── repo/
 ├── releases/<commit-sha>/
-└── current -> /opt/open-city-planner-packages/releases/<commit-sha>
+├── current -> /opt/open-city-planner-packages/releases/<commit-sha>
+└── artifacts/modules/<module-id>/<version>/<module-id>-<version>.ocp
 ```
 
-The public webroot is
-`/opt/open-city-planner-packages/current/dist`. Index and module metadata use
-`application/json` and `Cache-Control: public, max-age=300`. The vhost has no
-proxy, SPA fallback, wildcard CORS, source-tree exposure, or directory listing.
+Index and module metadata come from
+`/opt/open-city-planner-packages/current/dist` with `application/json` and
+`Cache-Control: public, max-age=300`. Canonical `.ocp` routes map to the
+separate artifact tree with `application/octet-stream`, one-year immutable
+cache headers, and `nosniff`. The vhost has no proxy, SPA fallback, wildcard
+CORS, source-tree exposure, or directory listing.
 
-This deploy publishes Registry JSON metadata only. It does not download or
-mirror `.ocp` bundles. Artifact verification remains a pull-request publishing
-gate, and registry availability is never a runtime dependency for installed
-modules.
+The normal deploy still publishes Registry code and JSON only. Artifact
+publication is the separate explicit `playbooks/publish-artifact.yml` operation;
+release rollback and retention inspect only `releases/` and cannot delete
+`artifacts/`. Artifact verification remains a pull-request publishing gate, and
+registry availability is never a runtime dependency for installed modules.
