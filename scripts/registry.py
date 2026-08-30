@@ -241,7 +241,7 @@ def validate_artifact_url(
         raise RegistryValidationError(f"{origin}: artifact path must end in .ocp")
     hosted = (
         parsed.hostname == "packages.stadtplaner.oklabflensburg.de"
-        and path.startswith(f"/modules/{module_id}/{version}/")
+        and path == f"/modules/{module_id}/{version}/{module_id}-{version}.ocp"
     )
     github_match = re.fullmatch(
         r"/([^/]+)/[^/]+/releases/download/([^/]+)/[^/]+\.ocp", path
@@ -300,10 +300,22 @@ def _canonical_id(value: Any, origin: str) -> str:
     return value
 
 
+def validate_module_id(value: Any, origin: str = "module ID") -> str:
+    """Return a canonical module ID or raise the Registry v1 validation error."""
+
+    return _canonical_id(value, origin)
+
+
 def _semver(value: Any, origin: str) -> str:
     if not isinstance(value, str) or not SEMVER_RE.fullmatch(value):
         raise RegistryValidationError(f"{origin}: must be a complete SemVer version")
     return value
+
+
+def validate_semver(value: Any, origin: str = "version") -> str:
+    """Return a complete SemVer value or raise the Registry v1 validation error."""
+
+    return _semver(value, origin)
 
 
 def _version_range(value: Any, origin: str) -> None:
@@ -466,11 +478,30 @@ def validate_immutability(
                 raise RegistryValidationError(
                     f"{module_id}@{version}: published release cannot be removed"
                 )
-            if current_releases[version] != base_release:
+            if current_releases[version] != base_release and not _is_mirror_promotion(
+                module_id, current_releases[version], base_release
+            ):
                 raise RegistryValidationError(
                     f"{module_id}@{version}: published release metadata is immutable; "
                     "publish a new version"
                 )
+
+
+def _is_mirror_promotion(
+    module_id: str, proposed: dict[str, Any], published: dict[str, Any]
+) -> bool:
+    """Allow one immutable-source URL to move to its canonical Registry mirror."""
+
+    published_url = urlsplit(published["artifact"]["url"])
+    expected_mirror = (
+        "https://packages.stadtplaner.oklabflensburg.de/modules/"
+        f'{module_id}/{published["version"]}/{module_id}-{published["version"]}.ocp'
+    )
+    if published_url.hostname != "github.com" or proposed["artifact"]["url"] != expected_mirror:
+        return False
+    normalized = json.loads(json.dumps(proposed))
+    normalized["artifact"]["url"] = published["artifact"]["url"]
+    return normalized == published
 
 
 def _validate_module_provenance_immutability(

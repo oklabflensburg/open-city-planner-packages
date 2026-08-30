@@ -4,7 +4,7 @@ Static package registry for installable [Open City Planner](https://github.com/o
 
 This repository is the registry and publishing layer. It contains reviewable module metadata, JSON Schemas, validation and publishing policy, and a deterministic static build. It does **not** contain the Open City Planner runtime, module execution or installer logic, a marketplace, a dependency resolver, or an API server.
 
-The repository currently provides **Registry v1 infrastructure**. The production registry is intentionally empty; no built-in or fake production module is published here.
+The repository provides **Registry v1 infrastructure** and an append-only mirror for reviewed `.ocp` release artifacts. Binary artifacts remain outside Git and outside versioned Registry release trees.
 
 ## Responsibility split
 
@@ -55,10 +55,11 @@ After first publication, stable module provenance (publisher ID, classification,
 The registry has an independent [Ansible deployment](deploy/ansible/README.md)
 for `packages.stadtplaner.oklabflensburg.de`. It resolves an explicit Git ref to
 an immutable SHA release, rebuilds and validates `dist/`, atomically switches
-`current`, serves only `current/dist` through Nginx, and automatically restores
+`current`, serves Registry JSON from `current/dist`, and automatically restores
 the previous release when rollout smoke checks fail. Production deployment is a
 manual, authorized operation after Registry CI; pull requests never connect to
-the server.
+the server. An explicit, separate playbook mirrors already reviewed artifacts
+into a persistent `artifacts/` tree that release rollback and retention never touch.
 
 A contribution adds one file such as `registry/modules/example.json`; see [the format](docs/registry-format.md) and [publishing flow](docs/publishing.md). Registry compatibility fields are discovery metadata copied from the bundle manifest. The embedded manifest remains authoritative during verification and installation.
 

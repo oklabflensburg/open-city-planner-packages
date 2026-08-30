@@ -1,0 +1,8 @@
+---
+- name: Publish one immutable package registry artifact
+  hosts: packages_registry
+  become: true
+  serial: 1
+  roles:
+    - role: packages_registry
+      tasks_from: publish_artifact

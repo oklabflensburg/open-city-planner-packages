@@ -1,9 +1,11 @@
 # Ansible deployment for the static package registry
 
-This directory deploys one immutable Git commit as a validated static release.
-Nginx serves only `/opt/open-city-planner-packages/current/dist`; there is no
-registry application process, systemd application service, database, runtime
-environment file, or artifact mirror.
+This directory deploys one immutable Git commit as a validated static release
+and provides a separate explicit operation for immutable `.ocp` publication.
+Nginx serves Registry JSON from `/opt/open-city-planner-packages/current/dist`
+and canonical bundle URLs from the persistent `artifacts/` tree. There is no
+registry application process, systemd application service, database, or runtime
+environment file.
 
 ## Prerequisites and inventory
 
@@ -68,6 +70,7 @@ to the actual 40-character commit and uses only that SHA as release identity.
 ├── repo/                 single managed Git checkout
 ├── releases/<sha>/       independent git-archive snapshot and .venv
 ├── current -> releases/<sha>
+├── artifacts/modules/    append-only `.ocp` mirror, never release-pruned
 ├── tools/uv/             pinned uv tooling venv
 └── .uv-cache/            service-user-owned dependency cache
 ```
@@ -89,7 +92,9 @@ defaults to 512 MiB through `packages_registry_min_release_free_bytes`.
 The managed vhost redirects HTTP to HTTPS while preserving the ACME challenge.
 HTTPS serves static JSON from `current/dist`, disables directory listing, sends
 `application/json`, five-minute cache headers, `nosniff`, and no wildcard CORS.
-There is no proxy, SPA fallback, or `.ocp` mirroring.
+Canonical `/modules/<id>/<version>/<id>-<version>.ocp` routes use the persistent
+artifact store, `application/octet-stream`, `nosniff`, and one-year immutable
+cache headers. There is no proxy, SPA fallback, or executable content handler.
 
 Ansible validates Nginx before every reload. Activation switches `current`,
 reloads Nginx, and checks the local TLS vhost for HTTP 200, JSON content type,
@@ -106,13 +111,57 @@ before activation never touch the active release.
 
 After a successful smoke check, mtime-based retention keeps five releases by
 default. The active release and the release that was active at the start of the
-deploy are protected from that run's pruning.
+deploy are protected from that run's pruning. Retention searches only
+`releases/`; it never traverses or removes `artifacts/`.
+
+## Explicit artifact publication
+
+Artifact publication is deliberately separate from Registry deployment. It
+selects the source URL and expected digest from a completely validated deployed
+Registry SHA; operators cannot provide a source URL or destination path.
+
+```bash
+uv run ansible-playbook -i inventory/production.ini playbooks/publish-artifact.yml \
+  -e registry_ref=<40-character-deployed-registry-sha> \
+  -e module_id=analysis-areas \
+  -e version=1.0.0
+```
+
+The playbook requires the exact `releases/<registry-sha>/.release-ready` marker
+before running `scripts/publish_artifacts.py` as `ocp-packages`. The script uses
+the Registry artifact gate's URL/redirect limits and streaming downloader,
+checks SHA-256, flushes the completed temporary file, and atomically creates the
+canonical target without overwrite. A matching existing file reports
+`already-present`; a different digest fails closed. Files are `0644`, directories
+are `0755`, and `www-data` has read access but no write ownership.
+
+The merged Registry PR already ran the pinned Host verifier against the same
+immutable URL and digest. The production playbook deliberately relies on that
+reviewed gate instead of installing the Host and Node.js on the static registry
+server. A prepared pinned checkout can still be supplied directly to the Python
+CLI with `--host-verifier-root` for an additional read-only `verify` pass.
+
+After publication, check the public bytes before opening the separate URL
+promotion PR:
+
+```bash
+curl --fail --show-error --output /tmp/analysis-areas-1.0.0.ocp \
+  https://packages.stadtplaner.oklabflensburg.de/modules/analysis-areas/1.0.0/analysis-areas-1.0.0.ocp
+sha256sum /tmp/analysis-areas-1.0.0.ocp
+```
+
+The expected SHA-256 is
+`7006f31ea73f40e38f63d2065652c27ad5d3391ddcc8cfad2f149993efef3dcf`.
+Only after this production proof should a second reviewed Registry PR promote
+`artifact.url` from GitHub to the canonical Registry URL. Issue #8 remains open
+until both the public mirror and that metadata promotion are complete.
 
 ## Operations and troubleshooting
 
 ```bash
 readlink -f /opt/open-city-planner-packages/current
 ls -la /opt/open-city-planner-packages/releases/
+find /opt/open-city-planner-packages/artifacts/modules -type f -name '*.ocp' -print
 curl --fail --show-error https://packages.stadtplaner.oklabflensburg.de/index.json
 sudo nginx -t
 ```

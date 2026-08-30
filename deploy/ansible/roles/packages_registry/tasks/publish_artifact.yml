@@ -1,0 +1,101 @@
+---
+- name: Require explicit immutable artifact publication inputs
+  ansible.builtin.assert:
+    that:
+      - module_id is defined
+      - module_id is match('^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$')
+      - version is defined
+      - version is match('^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:[-+][0-9A-Za-z.-]+)?$')
+      - registry_ref is defined
+      - registry_ref is match('^[0-9a-f]{40}$')
+      - packages_registry_artifact_root.startswith(packages_registry_root ~ '/')
+      - "'..' not in packages_registry_artifact_root.split('/')"
+      - packages_registry_artifact_root != packages_registry_repo_path
+      - packages_registry_artifact_root != packages_registry_releases_dir
+      - packages_registry_artifact_root != packages_registry_current_path
+      - not packages_registry_artifact_root.startswith(packages_registry_repo_path ~ '/')
+      - not packages_registry_artifact_root.startswith(packages_registry_releases_dir ~ '/')
+      - not packages_registry_artifact_root.startswith(packages_registry_current_path ~ '/')
+    fail_msg: Artifact publication requires canonical module/version and an immutable Registry SHA.
+
+- name: Ensure persistent artifact store exists outside Registry releases
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ packages_registry_service_user }}"
+    group: "{{ packages_registry_service_group }}"
+    mode: "0755"
+  loop:
+    - "{{ packages_registry_artifact_root }}"
+    - "{{ packages_registry_artifact_root }}/modules"
+
+- name: Update repository to requested publication ref without discarding local changes
+  ansible.builtin.git:
+    repo: "{{ packages_registry_repo_url }}"
+    dest: "{{ packages_registry_repo_path }}"
+    version: "{{ registry_ref }}"
+    update: true
+    force: false
+  become_user: "{{ packages_registry_service_user }}"
+  register: packages_registry_publish_git
+
+- name: Resolve immutable Registry publication SHA
+  ansible.builtin.command:
+    argv:
+      - git
+      - rev-parse
+      - --verify
+      - "{{ packages_registry_publish_git.after }}^{commit}"
+    chdir: "{{ packages_registry_repo_path }}"
+  become_user: "{{ packages_registry_service_user }}"
+  register: packages_registry_publish_revision
+  changed_when: false
+
+- name: Define reviewed Registry release used for publication
+  ansible.builtin.set_fact:
+    packages_registry_publish_sha: "{{ packages_registry_publish_revision.stdout | trim }}"
+    packages_registry_publish_release_path: >-
+      {{ packages_registry_releases_dir }}/{{ packages_registry_publish_revision.stdout | trim }}
+
+- name: Require exact deployed Registry release for publication
+  ansible.builtin.assert:
+    that:
+      - packages_registry_publish_sha == registry_ref
+      - packages_registry_publish_git.after == registry_ref
+    fail_msg: Artifact publication ref did not resolve to the requested immutable Registry SHA.
+
+- name: Read reviewed Registry release marker
+  ansible.builtin.slurp:
+    src: "{{ packages_registry_publish_release_path }}/.release-ready"
+  register: packages_registry_publish_ready
+
+- name: Require a completely validated deployed Registry release
+  ansible.builtin.assert:
+    that:
+      - (packages_registry_publish_ready.content | b64decode | trim) == registry_ref
+    fail_msg: Deploy and validate the exact Registry SHA before publishing its artifact metadata.
+
+- name: Publish selected immutable artifact from reviewed Registry metadata
+  ansible.builtin.command:
+    argv:
+      - "{{ packages_registry_uv_venv }}/bin/uv"
+      - run
+      - --frozen
+      - python
+      - scripts/publish_artifacts.py
+      - --module
+      - "{{ module_id }}"
+      - --version
+      - "{{ version }}"
+      - --artifact-root
+      - "{{ packages_registry_artifact_root }}"
+    chdir: "{{ packages_registry_publish_release_path }}"
+  environment:
+    UV_CACHE_DIR: "{{ packages_registry_uv_cache_dir }}"
+  become_user: "{{ packages_registry_service_user }}"
+  register: packages_registry_publish_result
+  changed_when: "'status: published' in packages_registry_publish_result.stdout"
+
+- name: Report immutable artifact publication result
+  ansible.builtin.debug:
+    msg: "{{ packages_registry_publish_result.stdout_lines }}"
