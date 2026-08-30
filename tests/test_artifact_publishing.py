@@ -27,6 +27,10 @@ SOURCE_URL = (
     "https://github.com/oklabflensburg/ocp-module-analysis-areas/releases/download/"
     "v1.0.0/analysis-areas-1.0.0.ocp"
 )
+PUBLISHED_URL = (
+    "https://packages.stadtplaner.oklabflensburg.de/modules/"
+    "analysis-areas/1.0.0/analysis-areas-1.0.0.ocp"
+)
 
 
 def write_registry(
@@ -98,7 +102,7 @@ def successful_download(observed_target: Path | None = None):
 def test_selects_published_analysis_areas_release() -> None:
     repository = Path(__file__).parents[1]
     release = select_release(repository / "registry", "analysis-areas", "1.0.0")
-    assert release.artifact_url == SOURCE_URL
+    assert release.artifact_url == PUBLISHED_URL
     assert release.expected_sha256 == (
         "7006f31ea73f40e38f63d2065652c27ad5d3391ddcc8cfad2f149993efef3dcf"
     )
