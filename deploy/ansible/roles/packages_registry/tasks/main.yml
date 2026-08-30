@@ -254,6 +254,8 @@
       - "{{ packages_registry_uv_venv }}/bin/uv"
       - run
       - pytest
+      - -m
+      - not repository_history
     chdir: "{{ packages_registry_release_path }}"
   environment:
     UV_CACHE_DIR: "{{ packages_registry_uv_cache_dir }}"

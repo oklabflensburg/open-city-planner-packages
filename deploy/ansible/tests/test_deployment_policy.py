@@ -103,6 +103,13 @@ def test_validation_gates_are_mandatory_except_test_suite() -> None:
     assert by_name["Run package registry release tests"]["when"] == (
         "packages_registry_run_tests | bool"
     )
+    release_test_command = by_name["Run package registry release tests"][
+        "ansible.builtin.command"
+    ]
+    assert release_test_command["argv"][-2:] == [
+        "-m",
+        "not repository_history",
+    ]
 
 
 def test_nginx_is_static_tls_only_with_required_headers() -> None:

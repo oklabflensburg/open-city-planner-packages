@@ -19,6 +19,9 @@ dev = [
 addopts = "-q"
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+  "repository_history: tests that require a Git checkout with repository history",
+]
 
 [tool.ruff]
 target-version = "py312"

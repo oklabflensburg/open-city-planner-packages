@@ -372,6 +372,7 @@ def test_new_module_provenance_is_unrestricted_by_baseline(module: dict) -> None
     validate_immutability([current], [])
 
 
+@pytest.mark.repository_history
 def test_initial_repository_without_registry_is_empty_baseline() -> None:
     repository = Path(__file__).parents[1]
     root_commit = subprocess.run(
