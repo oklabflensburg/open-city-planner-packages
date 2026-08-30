@@ -171,6 +171,48 @@ def test_explicit_publish_playbook_derives_target_from_registry_metadata() -> No
     assert "enable" not in publish_argv
 
 
+def test_normal_deploy_bulk_publishes_exact_ready_release_before_activation() -> None:
+    tasks_text = read(ROLE / "tasks" / "main.yml")
+    tasks = yaml.safe_load(tasks_text)
+    by_name = {task["name"]: task for task in tasks}
+    publish = by_name["Publish missing reviewed artifacts from exact validated release"]
+    publish_argv = publish["ansible.builtin.command"]["argv"]
+    assert "--all" in publish_argv
+    assert "--registry" in publish_argv
+    assert "{{ packages_registry_release_path }}/registry" in publish_argv
+    assert "--artifact-root" in publish_argv
+    assert publish["become_user"] == "{{ packages_registry_service_user }}"
+    assert "from_json" in publish["changed_when"]
+    assert tasks_text.index("Mark completely validated release as ready") < tasks_text.index(
+        "Publish missing reviewed artifacts from exact validated release"
+    )
+    assert tasks_text.index(
+        "Publish missing reviewed artifacts from exact validated release"
+    ) < tasks_text.index("Switch current symlink to validated SHA release atomically")
+
+
+def test_newly_published_artifacts_receive_public_header_and_digest_checks() -> None:
+    tasks = yaml.safe_load(read(ROLE / "tasks" / "main.yml"))
+    activation = next(
+        task
+        for task in tasks
+        if task["name"] == "Activate package registry release with rollback protection"
+    )
+    by_name = {task["name"]: task for task in activation["block"]}
+    headers = by_name["Fetch public headers for newly published artifacts"]
+    assert headers["ansible.builtin.uri"]["method"] == "HEAD"
+    assert headers["loop"] == "{{ packages_registry_artifact_publication.published }}"
+    header_assertions = by_name[
+        "Require immutable public headers for newly published artifacts"
+    ]["ansible.builtin.assert"]["that"]
+    assert any("application/octet-stream" in assertion for assertion in header_assertions)
+    assert any("immutable" in assertion for assertion in header_assertions)
+    assert any("nosniff" in assertion for assertion in header_assertions)
+    sha_check = by_name["Stream and verify public SHA for newly published artifacts"]
+    assert "--verify-public" in sha_check["ansible.builtin.command"]["argv"]
+    assert sha_check["loop"] == "{{ packages_registry_artifact_publication.published }}"
+
+
 def test_bootstrap_uses_pinned_uv_without_download_script() -> None:
     bootstrap = read(ANSIBLE / "playbooks" / "bootstrap.yml")
     tasks = read(ROLE / "tasks" / "main.yml")

@@ -136,6 +136,16 @@ existing registry validator and builder, deterministic `dist/` comparison, and
 the whitespace check. Validation and deterministic build cannot be disabled.
 `dist/index.json` must be a non-empty regular Registry v1 file.
 
+Immediately after `.release-ready`, the role runs
+`scripts/publish_artifacts.py --all` against `releases/<exact-sha>/registry`.
+It checks every reviewed
+module/version pair and publishes only missing immutable files. Matching local
+files remain `already-present` without network access; conflicting files and
+missing canonical self-mirror targets fail closed before activation. Ansible
+reports `changed` only when at least one artifact was newly published.
+Successful runs include `Artifact mirror: published: N already-present: N
+failed: 0` in the deployment output.
+
 The service user owns checkout, releases, builds, and the uv cache; release
 directories are `0755`, generated JSON inherits read access for Nginx, and
 `www-data` receives no write access to release content. The disk-space gate
@@ -155,7 +165,9 @@ reloads Nginx, and checks the local TLS vhost for HTTP 200, JSON content type,
 cache header, and `schema_version == 1`. The external HTTPS check validates the
 public certificate by default; it can be disabled only for a deliberately
 offline staging run with `packages_registry_run_external_smoke_check=false`.
-An empty module list is valid.
+For every artifact newly published by this deployment, the same rollback-protected
+block checks the public binary response headers and streams the public bytes to
+verify the reviewed SHA-256. An empty module list is valid.
 
 If activation, reload, or a smoke check fails, Ansible restores the previous
 symlink, validates/reloads Nginx, verifies the restored Registry v1 response,
@@ -168,11 +180,14 @@ default. The active release and the release that was active at the start of the
 deploy are protected from that run's pruning. Retention searches only
 `releases/`; it never traverses or removes `artifacts/`.
 
-## Explicit artifact publication
+## Automatic and recovery artifact publication
 
-Artifact publication is deliberately separate from Registry deployment. It
-selects the source URL and expected digest from a completely validated deployed
-Registry SHA; operators cannot provide a source URL or destination path.
+Normal Production operation is a reviewed merge to `main`. The workflow deploys
+the exact `github.sha`; Ansible validates the release, mirrors every missing
+reviewed artifact, activates the Registry, and performs public checks. Operators
+cannot provide source URLs or destination paths.
+
+The explicit playbook remains a targeted recovery and operations tool:
 
 ```bash
 uv run ansible-playbook -i inventory/production.ini playbooks/publish-artifact.yml \
@@ -181,8 +196,9 @@ uv run ansible-playbook -i inventory/production.ini playbooks/publish-artifact.y
   -e version=1.0.0
 ```
 
-The playbook requires the exact `releases/<registry-sha>/.release-ready` marker
-before running `scripts/publish_artifacts.py` as `ocp-packages`. The script uses
+The recovery playbook requires the exact
+`releases/<registry-sha>/.release-ready` marker before running
+`scripts/publish_artifacts.py` as `ocp-packages`. The script uses
 the Registry artifact gate's URL/redirect limits and streaming downloader,
 checks SHA-256, flushes the completed temporary file, and atomically creates the
 canonical target without overwrite. A matching existing file reports
@@ -195,8 +211,9 @@ reviewed gate instead of installing the Host and Node.js on the static registry
 server. A prepared pinned checkout can still be supplied directly to the Python
 CLI with `--host-verifier-root` for an additional read-only `verify` pass.
 
-After publication, check the public bytes before opening the separate URL
-promotion PR:
+It is not required in the normal merge flow. After automatic or recovery
+publication, the normal deploy checks public bytes before the separate
+URL-promotion PR. Operators may additionally inspect them:
 
 ```bash
 curl --fail --show-error --output /tmp/analysis-areas-1.0.0.ocp \
@@ -209,6 +226,16 @@ The expected SHA-256 is
 Only after this production proof should a second reviewed Registry PR promote
 `artifact.url` from GitHub to the canonical Registry URL. Issue #8 remains open
 until both the public mirror and that metadata promotion are complete.
+
+If promoted metadata references the canonical Registry URL but the local file is
+missing, automatic publication refuses to download from itself. Restore the
+original GitHub Release bytes through a separately reviewed disaster-recovery
+procedure, then use the recovery playbook for an idempotent check. Artifact
+rollback and deletion are intentionally absent; partial successful batches remain
+append-only and a retry skips them.
+
+Manual artifact publication is a recovery tool. Normal reviewed Registry
+deployments publish missing immutable artifacts automatically.
 
 ## Operations and troubleshooting
 

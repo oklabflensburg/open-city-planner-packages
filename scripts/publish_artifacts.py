@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Publish one validated Registry v1 release into the immutable artifact mirror."""
+"""Publish validated Registry v1 releases into the immutable artifact mirror."""
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import stat
 import sys
@@ -16,8 +17,10 @@ from typing import Any
 
 if __package__:
     from .registry import (
+        CANONICAL_REGISTRY_HOST,
         RegistryValidationError,
         load_registry,
+        semver_key,
         validate_module_id,
         validate_semver,
     )
@@ -48,8 +51,10 @@ else:
     )
 
     from registry import (
+        CANONICAL_REGISTRY_HOST,
         RegistryValidationError,
         load_registry,
+        semver_key,
         validate_module_id,
         validate_semver,
     )
@@ -72,6 +77,34 @@ class PublishResult:
     status: str
 
 
+@dataclass(frozen=True)
+class BulkPublishResult:
+    results: tuple[PublishResult, ...]
+
+    @property
+    def published(self) -> tuple[PublishResult, ...]:
+        return tuple(result for result in self.results if result.status == STATUS_PUBLISHED)
+
+    @property
+    def already_present(self) -> tuple[PublishResult, ...]:
+        return tuple(
+            result for result in self.results if result.status == STATUS_ALREADY_PRESENT
+        )
+
+
+def _candidate_from_release(module: dict[str, Any], release: dict[str, Any]) -> ReleaseCandidate:
+    candidate = ReleaseCandidate(
+        module_id=module["id"],
+        version=release["version"],
+        channel=release["channel"],
+        artifact_url=release["artifact"]["url"],
+        expected_sha256=release["artifact"]["sha256"],
+        classification=module["classification"],
+    )
+    validate_candidate_url(candidate)
+    return candidate
+
+
 def select_release(
     registry_root: Path, module_id: str, version: str
 ) -> ReleaseCandidate:
@@ -91,16 +124,18 @@ def select_release(
         raise ArtifactPublishingError(
             f'release "{canonical_id}@{canonical_version}" is not published'
         )
-    candidate = ReleaseCandidate(
-        module_id=canonical_id,
-        version=canonical_version,
-        channel=release["channel"],
-        artifact_url=release["artifact"]["url"],
-        expected_sha256=release["artifact"]["sha256"],
-        classification=module["classification"],
-    )
-    validate_candidate_url(candidate)
-    return candidate
+    return _candidate_from_release(module, release)
+
+
+def select_all_releases(registry_root: Path) -> list[ReleaseCandidate]:
+    """Select every published release from one completely validated Registry source."""
+
+    candidates = [
+        _candidate_from_release(module, release)
+        for module in load_registry(registry_root)
+        for release in module["versions"]
+    ]
+    return sorted(candidates, key=lambda item: (item.module_id, semver_key(item.version)))
 
 
 def canonical_artifact_relative_path(module_id: str, version: str) -> Path:
@@ -219,13 +254,18 @@ def publish_candidate(
 ) -> PublishResult:
     """Download, validate, and atomically publish one candidate without overwrite."""
 
-    validate_candidate_url(candidate)
+    source = validate_candidate_url(candidate)
     relative = canonical_artifact_relative_path(candidate.module_id, candidate.version)
     parent = _ensure_publish_directory(artifact_root, relative.parent)
     target = parent / relative.name
     existing = _existing_status(target, candidate.expected_sha256)
     if existing is not None:
         return PublishResult(candidate, target, existing)
+
+    if source.hostname == CANONICAL_REGISTRY_HOST:
+        raise ArtifactPublishingError(
+            f"{candidate.identity}: canonical mirror metadata references a missing local artifact"
+        )
 
     if host_verifier_root is not None:
         validate_checkout(host_verifier_root)
@@ -269,6 +309,61 @@ def publish_from_registry(
     return publish_candidate(candidate, artifact_root, **kwargs)
 
 
+def publish_all_from_registry(
+    registry_root: Path,
+    artifact_root: Path,
+    **kwargs: Any,
+) -> BulkPublishResult:
+    """Publish every reviewed release, preserving successful append-only progress."""
+
+    results = []
+    for candidate in select_all_releases(registry_root):
+        try:
+            results.append(publish_candidate(candidate, artifact_root, **kwargs))
+        except (ArtifactPublishingError, ArtifactVerificationError, OSError) as exc:
+            if str(exc).startswith(f"{candidate.identity}:"):
+                raise
+            raise ArtifactPublishingError(f"{candidate.identity}: {exc}") from exc
+    return BulkPublishResult(tuple(results))
+
+
+def canonical_public_artifact_url(module_id: str, version: str) -> str:
+    relative = canonical_artifact_relative_path(module_id, version)
+    return f"https://{CANONICAL_REGISTRY_HOST}/{relative.as_posix()}"
+
+
+def verify_public_release(
+    registry_root: Path,
+    module_id: str,
+    version: str,
+    *,
+    timeout: float = DEFAULT_TIMEOUT,
+    max_bytes: int = MAX_ARTIFACT_BYTES,
+    downloader: DownloadFunction = download_artifact,
+) -> str:
+    """Stream the canonical public artifact and require its reviewed digest."""
+
+    selected = select_release(registry_root, module_id, version)
+    public_url = canonical_public_artifact_url(module_id, version)
+    public_candidate = ReleaseCandidate(
+        module_id=selected.module_id,
+        version=selected.version,
+        channel=selected.channel,
+        artifact_url=public_url,
+        expected_sha256=selected.expected_sha256,
+        classification=selected.classification,
+    )
+    validate_candidate_url(public_candidate)
+    with tempfile.TemporaryDirectory(prefix="ocp-public-artifact-") as temporary:
+        artifact = Path(temporary) / f"{module_id}-{version}.ocp"
+        actual_sha256 = downloader(public_candidate, artifact, timeout, max_bytes)
+    if actual_sha256 != selected.expected_sha256:
+        raise ArtifactPublishingError(
+            f"{selected.identity}: public SHA-256 does not match Registry metadata"
+        )
+    return public_url
+
+
 def _print_result(result: PublishResult) -> None:
     print(f"module: {result.candidate.module_id}")
     print(f"version: {result.candidate.version}")
@@ -278,24 +373,82 @@ def _print_result(result: PublishResult) -> None:
     print(f"status: {result.status}")
 
 
+def _serialized_result(result: PublishResult) -> dict[str, str]:
+    return {
+        "module_id": result.candidate.module_id,
+        "version": result.candidate.version,
+        "expected_sha256": result.candidate.expected_sha256,
+        "public_url": canonical_public_artifact_url(
+            result.candidate.module_id, result.candidate.version
+        ),
+        "status": result.status,
+    }
+
+
+def _print_bulk_result(result: BulkPublishResult) -> None:
+    payload = {
+        "published": [_serialized_result(item) for item in result.published],
+        "already_present": [_serialized_result(item) for item in result.already_present],
+        "summary": {
+            "published": len(result.published),
+            "already-present": len(result.already_present),
+            "failed": 0,
+        },
+    }
+    print(json.dumps(payload, sort_keys=True))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--module", required=True, help="published Registry v1 module ID")
-    parser.add_argument("--version", required=True, help="published complete SemVer")
-    parser.add_argument("--artifact-root", required=True, type=Path)
+    parser.add_argument("--module", help="published Registry v1 module ID")
+    parser.add_argument("--version", help="published complete SemVer")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--all", action="store_true", help="publish every reviewed release")
+    mode.add_argument(
+        "--verify-public",
+        action="store_true",
+        help="stream and verify one release from its canonical public mirror URL",
+    )
+    parser.add_argument("--artifact-root", type=Path)
     parser.add_argument("--registry", type=Path, default=REPOSITORY_ROOT / "registry")
     parser.add_argument("--host-verifier-root", type=Path)
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     args = parser.parse_args()
+    if args.all:
+        if args.module is not None or args.version is not None or args.artifact_root is None:
+            parser.error("--all requires --artifact-root and does not accept --module/--version")
+    elif args.verify_public:
+        if args.module is None or args.version is None or args.artifact_root is not None:
+            parser.error("--verify-public requires --module and --version only")
+    elif args.module is None or args.version is None or args.artifact_root is None:
+        parser.error("single publication requires --module, --version, and --artifact-root")
     try:
-        result = publish_from_registry(
-            args.registry,
-            args.module,
-            args.version,
-            args.artifact_root,
-            host_verifier_root=args.host_verifier_root,
-            timeout=args.timeout,
-        )
+        if args.all:
+            bulk_result = publish_all_from_registry(
+                args.registry,
+                args.artifact_root,
+                host_verifier_root=args.host_verifier_root,
+                timeout=args.timeout,
+            )
+            _print_bulk_result(bulk_result)
+        elif args.verify_public:
+            public_url = verify_public_release(
+                args.registry,
+                args.module,
+                args.version,
+                timeout=args.timeout,
+            )
+            print(f"public artifact verified: {public_url}")
+        else:
+            result = publish_from_registry(
+                args.registry,
+                args.module,
+                args.version,
+                args.artifact_root,
+                host_verifier_root=args.host_verifier_root,
+                timeout=args.timeout,
+            )
+            _print_result(result)
     except (
         ArtifactPublishingError,
         ArtifactVerificationError,
@@ -304,7 +457,6 @@ def main() -> int:
     ) as exc:
         print(f"artifact publication failed: {exc}", file=sys.stderr)
         return 1
-    _print_result(result)
     return 0
 
 
