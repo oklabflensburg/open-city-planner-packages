@@ -99,7 +99,10 @@
        'uv ' ~ packages_registry_uv_version ~ ' '
      ))
 
-- name: Require pinned Node.js tooling from bootstrap
+- name: Provision pinned package explorer tooling
+  ansible.builtin.import_tasks: web_tooling.yml
+
+- name: Require pinned Node.js runtime
   ansible.builtin.command:
     argv:
       - "{{ packages_registry_node_binary }}"
@@ -110,7 +113,7 @@
     packages_registry_node_version_result.rc != 0 or
     packages_registry_node_version_result.stdout != 'v' ~ packages_registry_node_version
 
-- name: Require pinned pnpm tooling from bootstrap
+- name: Require pinned pnpm runtime
   ansible.builtin.command:
     argv:
       - "{{ packages_registry_pnpm_binary }}"

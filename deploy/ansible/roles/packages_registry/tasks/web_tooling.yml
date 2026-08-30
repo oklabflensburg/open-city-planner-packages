@@ -1,0 +1,59 @@
+---
+- name: Install package explorer archive prerequisite
+  ansible.builtin.apt:
+    name: xz-utils
+    state: present
+    update_cache: false
+
+- name: Ensure package explorer tooling directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ packages_registry_root }}/tools"
+      owner: root
+      group: root
+      mode: "0755"
+    - path: "{{ packages_registry_root }}/.corepack"
+      owner: "{{ packages_registry_service_user }}"
+      group: "{{ packages_registry_service_group }}"
+      mode: "0750"
+
+- name: Download pinned Node.js runtime archive
+  ansible.builtin.get_url:
+    url: "https://nodejs.org/dist/v{{ packages_registry_node_version }}/node-v{{ packages_registry_node_version }}-linux-x64.tar.xz"
+    dest: "{{ packages_registry_root }}/tools/node-v{{ packages_registry_node_version }}-linux-x64.tar.xz"
+    checksum: "sha256:{{ packages_registry_node_archive_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install pinned Node.js runtime
+  ansible.builtin.unarchive:
+    src: "{{ packages_registry_root }}/tools/node-v{{ packages_registry_node_version }}-linux-x64.tar.xz"
+    dest: "{{ packages_registry_root }}/tools"
+    remote_src: true
+    creates: "{{ packages_registry_node_binary }}"
+
+- name: Enable pinned pnpm Corepack shim
+  ansible.builtin.command:
+    argv:
+      - "{{ packages_registry_corepack_binary }}"
+      - enable
+      - pnpm
+  changed_when: true
+
+- name: Activate pinned pnpm with Corepack
+  ansible.builtin.command:
+    argv:
+      - "{{ packages_registry_corepack_binary }}"
+      - install
+      - --global
+      - "pnpm@{{ packages_registry_pnpm_version }}"
+  environment:
+    COREPACK_HOME: "{{ packages_registry_root }}/.corepack"
+  become_user: "{{ packages_registry_service_user }}"
+  changed_when: true
