@@ -134,9 +134,13 @@ The registry has an independent [Ansible deployment](deploy/ansible/README.md) f
 
 Pull requests run validation, Ansible policy tests and artifact verification only. After a reviewed merge, a successful push to `main` runs the same validation and Ansible gates before the protected `production` GitHub Environment deploys the exact `github.sha`.
 
-The deployment resolves that SHA to an immutable release, rebuilds and validates `dist/`, atomically switches the active release and restores the previous version if rollout smoke checks fail.
-
-Reviewed `.ocp` artifacts can be mirrored separately into a persistent artifact tree. Normal `main` deployments do not publish package binaries.
+The deployment resolves that SHA to an immutable release, rebuilds and validates
+`dist/`, automatically mirrors every missing reviewed `.ocp` release into the
+persistent artifact tree, atomically switches the active release, and verifies
+the Registry plus every newly published artifact through the public endpoint.
+Rollback and release retention never remove immutable artifacts. The separate
+publication playbook remains available for recovery and operations, but normal
+reviewed merges require no manual publication step.
 
 ## Contributing
 

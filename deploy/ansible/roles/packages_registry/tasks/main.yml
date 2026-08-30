@@ -386,6 +386,52 @@
     group: "{{ packages_registry_service_group }}"
     mode: "0644"
 
+- name: Read exact validated release marker before artifact publication
+  ansible.builtin.slurp:
+    src: "{{ packages_registry_release_path }}/.release-ready"
+  register: packages_registry_deploy_ready
+
+- name: Require exact validated release for automatic artifact publication
+  ansible.builtin.assert:
+    that:
+      - (packages_registry_deploy_ready.content | b64decode | trim) == packages_registry_release_sha
+      - packages_registry_git.after == packages_registry_release_sha
+    fail_msg: Automatic artifact publication requires the exact reviewed Registry release.
+
+- name: Publish missing reviewed artifacts from exact validated release
+  ansible.builtin.command:
+    argv:
+      - "{{ packages_registry_uv_venv }}/bin/uv"
+      - run
+      - --frozen
+      - python
+      - scripts/publish_artifacts.py
+      - --all
+      - --registry
+      - "{{ packages_registry_release_path }}/registry"
+      - --artifact-root
+      - "{{ packages_registry_artifact_root }}"
+    chdir: "{{ packages_registry_release_path }}"
+  environment:
+    UV_CACHE_DIR: "{{ packages_registry_uv_cache_dir }}"
+  become_user: "{{ packages_registry_service_user }}"
+  register: packages_registry_artifact_publish_command
+  changed_when: >-
+    (packages_registry_artifact_publish_command.stdout | from_json).summary.published | int > 0
+
+- name: Define automatic artifact publication result
+  ansible.builtin.set_fact:
+    packages_registry_artifact_publication: >-
+      {{ packages_registry_artifact_publish_command.stdout | from_json }}
+
+- name: Report automatic artifact mirror result
+  ansible.builtin.debug:
+    msg: >-
+      Artifact mirror:
+      published: {{ packages_registry_artifact_publication.summary.published }}
+      already-present: {{ packages_registry_artifact_publication.summary['already-present'] }}
+      failed: {{ packages_registry_artifact_publication.summary.failed }}
+
 - name: Inspect package registry TLS files
   ansible.builtin.stat:
     path: "{{ item }}"
@@ -487,6 +533,64 @@
           - packages_registry_external_smoke.json.schema_version == 1
           - packages_registry_external_smoke.json.modules is sequence
         fail_msg: External package registry smoke check returned an invalid response.
+      when:
+        - packages_registry_manage_nginx | bool
+        - packages_registry_run_external_smoke_check | bool
+
+    - name: Fetch public headers for newly published artifacts
+      ansible.builtin.uri:
+        url: "{{ item.public_url }}"
+        method: HEAD
+        status_code: 200
+        return_content: false
+        validate_certs: true
+      loop: "{{ packages_registry_artifact_publication.published }}"
+      loop_control:
+        label: "{{ item.module_id }}@{{ item.version }}"
+      register: packages_registry_public_artifact_headers
+      when:
+        - packages_registry_manage_nginx | bool
+        - packages_registry_run_external_smoke_check | bool
+
+    - name: Require immutable public headers for newly published artifacts
+      ansible.builtin.assert:
+        that:
+          - "'application/octet-stream' in item.content_type"
+          - "'immutable' in item.cache_control"
+          - item.x_content_type_options == 'nosniff'
+        fail_msg: >-
+          Public artifact {{ item.item.module_id }}@{{ item.item.version }}
+          does not expose the required immutable binary response headers.
+      loop: "{{ packages_registry_public_artifact_headers.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.module_id }}@{{ item.item.version }}"
+      when:
+        - packages_registry_manage_nginx | bool
+        - packages_registry_run_external_smoke_check | bool
+
+    - name: Stream and verify public SHA for newly published artifacts
+      ansible.builtin.command:
+        argv:
+          - "{{ packages_registry_uv_venv }}/bin/uv"
+          - run
+          - --frozen
+          - python
+          - scripts/publish_artifacts.py
+          - --verify-public
+          - --module
+          - "{{ item.module_id }}"
+          - --version
+          - "{{ item.version }}"
+          - --registry
+          - "{{ packages_registry_release_path }}/registry"
+        chdir: "{{ packages_registry_release_path }}"
+      environment:
+        UV_CACHE_DIR: "{{ packages_registry_uv_cache_dir }}"
+      become_user: "{{ packages_registry_service_user }}"
+      changed_when: false
+      loop: "{{ packages_registry_artifact_publication.published }}"
+      loop_control:
+        label: "{{ item.module_id }}@{{ item.version }}"
       when:
         - packages_registry_manage_nginx | bool
         - packages_registry_run_external_smoke_check | bool

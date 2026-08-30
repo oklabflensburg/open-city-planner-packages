@@ -14,6 +14,7 @@ from jsonschema.exceptions import SchemaError, ValidationError
 
 SCHEMA_VERSION = 1
 BUNDLE_FORMAT_VERSION = 1
+CANONICAL_REGISTRY_HOST = "packages.stadtplaner.oklabflensburg.de"
 MODULE_ID_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 SEMVER_RE = re.compile(
     r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
@@ -240,7 +241,7 @@ def validate_artifact_url(
     if not path.endswith(".ocp"):
         raise RegistryValidationError(f"{origin}: artifact path must end in .ocp")
     hosted = (
-        parsed.hostname == "packages.stadtplaner.oklabflensburg.de"
+        parsed.hostname == CANONICAL_REGISTRY_HOST
         and path == f"/modules/{module_id}/{version}/{module_id}-{version}.ocp"
     )
     github_match = re.fullmatch(
@@ -494,7 +495,7 @@ def _is_mirror_promotion(
 
     published_url = urlsplit(published["artifact"]["url"])
     expected_mirror = (
-        "https://packages.stadtplaner.oklabflensburg.de/modules/"
+        f"https://{CANONICAL_REGISTRY_HOST}/modules/"
         f'{module_id}/{published["version"]}/{module_id}-{published["version"]}.ocp'
     )
     if published_url.hostname != "github.com" or proposed["artifact"]["url"] != expected_mirror:

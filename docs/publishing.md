@@ -67,29 +67,43 @@ After discovery, a future admin-side consumer may download a selected `id@versio
 Registry v1 uses bootstrap Option A. It needs no staging namespace or additional schema field:
 
 1. **Phase 1:** publish the immutable GitHub Release URL and digest in a Registry pull request. CI downloads that exact URL, verifies SHA-256, and runs the pinned Host verifier.
-2. **Phase 2:** after merge and Registry deployment, explicitly publish the same bytes into the persistent Registry mirror with `playbooks/publish-artifact.yml`.
+2. **Phase 2:** after merge, the exact-SHA Production deployment automatically publishes every missing reviewed release into the persistent Registry mirror.
 3. **Phase 3:** verify the public mirror URL and digest, then open a second reviewed Registry pull request that changes only `artifact.url` to the canonical Registry URL.
 
 The one-time URL promotion is narrowly validated: GitHub Release to `/modules/<id>/<version>/<id>-<version>.ocp`, with the digest and every other release field unchanged. Once promoted, the mirror URL is immutable. GitHub repository, source commit, and source tag remain the provenance record.
 
 The production publisher intentionally reuses the merged Registry metadata and the same bounded downloader, redirect policy, and SHA-256 implementation as the pull-request artifact gate. The exact URL and digest were already accepted by the pinned Host verifier before merge; production therefore does not install a second Host runtime merely to repeat parsing. Operators who have the pinned verifier checkout prepared may additionally pass `--host-verifier-root` to `scripts/publish_artifacts.py`; this still invokes only `verify`.
 
-From `deploy/ansible`, the operator flow for `analysis-areas@1.0.0` is:
+The normal flow for `analysis-areas@1.0.0` is:
 
 ```bash
 # 1. Merge the Registry PR containing the GitHub Release URL.
-# 2. Deploy that exact reviewed Registry SHA.
-uv run ansible-playbook -i inventory/production.ini playbooks/deploy.yml \
-  -e packages_registry_deploy_ref=<40-character-registry-sha>
-
-# 3. Explicitly mirror the selected release from Registry metadata.
-uv run ansible-playbook -i inventory/production.ini playbooks/publish-artifact.yml \
-  -e registry_ref=<40-character-registry-sha> \
-  -e module_id=analysis-areas \
-  -e version=1.0.0
-
-# 4. Verify the public URL and SHA-256.
-# 5. Open a second reviewed PR changing only artifact.url to the mirror URL.
+# 2. That push starts the main workflow, which deploys the exact commit,
+#    mirrors missing artifacts, and verifies their public bytes and headers.
+# 3. Open a second reviewed PR changing only artifact.url to the mirror URL.
 ```
 
-The publisher derives the target path from validated module ID and SemVer. It downloads into a randomized hidden `.partial` file in the final filesystem, checks the Registry digest, optionally calls the shared Host verifier, flushes the complete file, and publishes with an atomic no-clobber link. An existing file with the same digest is an idempotent success; any different content fails without overwrite. There is no force option, repacking, garbage collector, or automatic publication during normal Registry deployment.
+The publisher derives every target path from validated module ID and SemVer in
+the exact deployed release. It checks existing files before opening a network
+connection, downloads missing artifacts into randomized hidden `.partial` files,
+checks the Registry digest, optionally calls the shared Host verifier, flushes
+the complete file, and publishes with an atomic no-clobber link. Matching files
+are idempotent successes; different content fails without overwrite. If one item
+in a batch fails, earlier successful append-only publications remain and are
+reported as `already-present` on retry.
+
+After activation, newly published artifacts are streamed from their canonical
+public URLs to verify SHA-256. Their responses must use
+`application/octet-stream`, immutable caching, and `nosniff`. A canonical mirror
+URL whose local file already exists is accepted without a download. If canonical
+mirror metadata points to a missing local file, publication fails closed instead
+of downloading recursively from the same Registry.
+
+`playbooks/publish-artifact.yml` remains available for targeted recovery,
+operations, debugging, and idempotent republish checks. It is not part of normal
+publication. Disaster recovery for missing artifacts after URL promotion must
+restore the original verified GitHub Release bytes through a separately reviewed
+recovery procedure; the self-mirror URL is never treated as a bootstrap source.
+
+Manual artifact publication is a recovery tool. Normal reviewed Registry
+deployments publish missing immutable artifacts automatically.
