@@ -53,13 +53,18 @@ After first publication, stable module provenance (publisher ID, classification,
 ## Production deployment
 
 The registry has an independent [Ansible deployment](deploy/ansible/README.md)
-for `packages.stadtplaner.oklabflensburg.de`. It resolves an explicit Git ref to
-an immutable SHA release, rebuilds and validates `dist/`, atomically switches
-`current`, serves Registry JSON from `current/dist`, and automatically restores
-the previous release when rollout smoke checks fail. Production deployment is a
-manual, authorized operation after Registry CI; pull requests never connect to
-the server. An explicit, separate playbook mirrors already reviewed artifacts
-into a persistent `artifacts/` tree that release rollback and retention never touch.
+for `packages.stadtplaner.oklabflensburg.de`. Pull requests run validation,
+Ansible policy tests, and artifact verification only. After a reviewed merge,
+every successful push to `main` runs the same validation and Ansible gates, then
+the protected `production` GitHub Environment deploys the exact `github.sha`.
+Pull requests never start the Production job or receive its SSH credentials.
+
+The existing Ansible deployment resolves that SHA to an immutable release,
+rebuilds and validates `dist/`, atomically switches `current`, serves Registry
+JSON from `current/dist`, and automatically restores the previous release when
+rollout smoke checks fail. An explicit, separate playbook mirrors already
+reviewed artifacts into a persistent `artifacts/` tree that release rollback
+and retention never touch; normal main deployments never publish `.ocp` files.
 
 A contribution adds one file such as `registry/modules/example.json`; see [the format](docs/registry-format.md) and [publishing flow](docs/publishing.md). Registry compatibility fields are discovery metadata copied from the bundle manifest. The embedded manifest remains authoritative during verification and installation.
 
