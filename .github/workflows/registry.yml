@@ -9,8 +9,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: registry-${{ github.ref }}
-  cancel-in-progress: true
+  group: registry-${{ github.event_name == 'push' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   ansible:
@@ -42,6 +42,7 @@ jobs:
           uv run ansible-playbook --syntax-check playbooks/bootstrap.yml
           uv run ansible-playbook --syntax-check playbooks/certificates.yml
           uv run ansible-playbook --syntax-check playbooks/deploy.yml
+          uv run ansible-playbook --syntax-check playbooks/publish-artifact.yml
 
   validate:
     runs-on: ubuntu-latest
@@ -177,3 +178,104 @@ jobs:
       - name: Report empty candidate set
         if: steps.releases.outputs.count == '0'
         run: echo "No new release artifacts to verify."
+
+  deploy-production:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs:
+      - validate
+      - ansible
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment:
+      name: production
+    permissions:
+      contents: read
+    concurrency:
+      group: packages-registry-production
+      cancel-in-progress: false
+    env:
+      PACKAGES_REGISTRY_HOST: ${{ vars.PACKAGES_REGISTRY_HOST }}
+      PACKAGES_REGISTRY_REMOTE_USER: ${{ vars.PACKAGES_REGISTRY_REMOTE_USER }}
+    steps:
+      - name: Check out exact reviewed Registry commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Install pinned uv
+        run: python -m pip install "uv==0.12.5"
+
+      - name: Install locked deployment dependencies
+        run: uv sync --frozen
+
+      - name: Configure pinned Production SSH trust
+        shell: bash
+        env:
+          PACKAGES_REGISTRY_SSH_PRIVATE_KEY: ${{ secrets.PACKAGES_REGISTRY_SSH_PRIVATE_KEY }}
+          PACKAGES_REGISTRY_SSH_KNOWN_HOSTS: ${{ secrets.PACKAGES_REGISTRY_SSH_KNOWN_HOSTS }}
+        run: |
+          test -n "${PACKAGES_REGISTRY_SSH_PRIVATE_KEY}"
+          test -n "${PACKAGES_REGISTRY_SSH_KNOWN_HOSTS}"
+          [[ "${PACKAGES_REGISTRY_HOST}" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]]
+          [[ "${PACKAGES_REGISTRY_REMOTE_USER}" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          umask 077
+          mkdir -p "${HOME}/.ssh"
+          printf '%s\n' "${PACKAGES_REGISTRY_SSH_PRIVATE_KEY}" > "${HOME}/.ssh/id_ed25519"
+          printf '%s\n' "${PACKAGES_REGISTRY_SSH_KNOWN_HOSTS}" > "${HOME}/.ssh/known_hosts"
+          chmod 600 "${HOME}/.ssh/id_ed25519"
+          chmod 600 "${HOME}/.ssh/known_hosts"
+          ssh-keygen -y -f "${HOME}/.ssh/id_ed25519" >/dev/null
+          ssh-keygen -F "${PACKAGES_REGISTRY_HOST}" \
+            -f "${HOME}/.ssh/known_hosts" >/dev/null
+
+      - name: Generate ephemeral Production inventory
+        shell: bash
+        run: |
+          umask 077
+          printf '%s\n' \
+            '[packages_registry]' \
+            "${PACKAGES_REGISTRY_HOST}" \
+            '' \
+            '[packages_registry:vars]' \
+            'ansible_python_interpreter=/usr/bin/python3' \
+            > deploy/ansible/inventory/production.ini
+
+      - name: Verify pinned SSH connectivity
+        run: >-
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes
+          "${PACKAGES_REGISTRY_REMOTE_USER}@${PACKAGES_REGISTRY_HOST}" true
+
+      - name: Deploy exact reviewed commit with existing Ansible safety gates
+        working-directory: deploy/ansible
+        env:
+          ANSIBLE_REMOTE_USER: ${{ env.PACKAGES_REGISTRY_REMOTE_USER }}
+        run: >-
+          uv run ansible-playbook
+          -i inventory/production.ini
+          playbooks/deploy.yml
+          -e "packages_registry_deploy_ref=${GITHUB_SHA}"
+
+      - name: Verify public Production Registry
+        run: |
+          uv run python - <<'PY'
+          import json
+          import urllib.request
+
+          url = "https://packages.stadtplaner.oklabflensburg.de/index.json"
+          with urllib.request.urlopen(url, timeout=30) as response:
+              if response.status != 200:
+                  raise SystemExit(f"Production Registry returned HTTP {response.status}")
+              content_type = response.headers.get_content_type()
+              if content_type != "application/json":
+                  raise SystemExit(f"Unexpected Content-Type: {content_type}")
+              index = json.load(response)
+          if index.get("schema_version") != 1 or not isinstance(index.get("modules"), list):
+              raise SystemExit("Production Registry did not return a Registry v1 index")
+          print("Production Registry smoke check passed.")
+          PY

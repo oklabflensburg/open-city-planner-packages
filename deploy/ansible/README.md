@@ -51,7 +51,12 @@ when the named certificate already exists. A normal deploy never requests or
 renews a certificate. It fails before changing the vhost unless both Let's
 Encrypt certificate files exist.
 
-Deploy an explicit commit SHA after Registry CI has passed:
+The Registry workflow deploys automatically after validation and Ansible tests
+succeed on a push to `main`. The Production job checks out and passes the exact
+`${{ github.sha }}` to this playbook; it never deploys the moving branch name.
+
+For an authorized manual recovery, deploy an explicit commit SHA after Registry
+CI has passed:
 
 ```bash
 uv run ansible-playbook -i inventory/production.ini playbooks/deploy.yml \
@@ -62,6 +67,55 @@ uv run ansible-playbook -i inventory/production.ini playbooks/deploy.yml \
 The checkout uses `force: false`; dirty server-side changes therefore stop an
 update rather than being silently discarded. Ansible resolves the selected ref
 to the actual 40-character commit and uses only that SHA as release identity.
+
+## GitHub Production environment
+
+The `deploy-production` job runs only when both conditions are true:
+
+```text
+github.event_name == push
+github.ref == refs/heads/main
+```
+
+It needs the successful `validate` and `ansible` jobs, uses job-level
+`contents: read`, and serializes deployments through the non-cancelling
+`packages-registry-production` concurrency group. Pull-request jobs do not
+reference the Environment and cannot receive its credentials.
+
+Create a GitHub Environment named `production` with these Environment secrets:
+
+```text
+PACKAGES_REGISTRY_SSH_PRIVATE_KEY
+PACKAGES_REGISTRY_SSH_KNOWN_HOSTS
+```
+
+`PACKAGES_REGISTRY_SSH_KNOWN_HOSTS` must contain the independently verified
+Production host key entry. It is the trust root; the workflow never uses
+`ssh-keyscan` and never disables strict host-key checking.
+
+Configure these Environment variables:
+
+```text
+PACKAGES_REGISTRY_HOST
+PACKAGES_REGISTRY_REMOTE_USER
+```
+
+The runner writes the private key to `~/.ssh/id_ed25519` and the pinned entries
+to `~/.ssh/known_hosts`, both mode `0600`, without printing either value. It
+generates the ignored `inventory/production.ini` at runtime, checks SSH in
+batch mode with `StrictHostKeyChecking=yes`, and calls:
+
+```bash
+uv run ansible-playbook \
+  -i inventory/production.ini \
+  playbooks/deploy.yml \
+  -e "packages_registry_deploy_ref=${GITHUB_SHA}"
+```
+
+The workflow then performs an independent HTTPS Registry v1 smoke check. Any
+SSH, inventory, Ansible, Nginx, rollback, or smoke-check failure leaves the
+workflow red. Optional Environment protection rules may require approval before
+the job receives Production credentials.
 
 ## Release layout and validation
 

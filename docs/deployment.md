@@ -11,12 +11,14 @@ retention, permissions, and troubleshooting commands live in
 [`deploy/ansible/README.md`](../deploy/ansible/README.md). The short production
 sequence is:
 
-1. Require successful Registry CI for the intended `main` commit.
+1. Pull requests run Registry, Ansible, and artifact-verification gates without
+   access to the Production Environment.
 2. Bootstrap the target once with `playbooks/bootstrap.yml`.
 3. Point DNS at the host and issue TLS separately with the opt-in
    `playbooks/certificates.yml`.
-4. Run `playbooks/deploy.yml` with
-   `packages_registry_deploy_ref=<40-character-commit-sha>`.
+4. After merge, the successful `main` push runs validation and Ansible tests,
+   then the protected Production job invokes `playbooks/deploy.yml` with
+   `packages_registry_deploy_ref=${GITHUB_SHA}`.
 5. Ansible updates the non-forced checkout and resolves the actual commit SHA.
 6. It materializes `releases/<sha>` using `git archive`, runs locked dependency
    sync, lint, tests, source validation, and deterministic `dist/` build.
