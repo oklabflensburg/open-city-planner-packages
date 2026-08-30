@@ -13,7 +13,7 @@ Environment=PORT={{ packages_registry_frontend_port }}
 Environment=NUXT_API_BASE_INTERNAL=http://127.0.0.1:{{ packages_registry_backend_port }}/api
 Environment=NUXT_PUBLIC_API_BASE=/api
 Environment=NUXT_PUBLIC_SITE_URL=https://{{ packages_registry_domain }}
-ExecStart={{ packages_registry_node_binary }} {{ packages_registry_current_path }}/web/frontend/.output/server/index.mjs
+ExecStart=/usr/bin/node {{ packages_registry_current_path }}/web/frontend/.output/server/index.mjs
 Restart=on-failure
 RestartSec=3
 NoNewPrivileges=true

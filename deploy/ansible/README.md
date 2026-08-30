@@ -30,10 +30,13 @@ ansible -i inventory/production.ini packages_registry -m ping
 ## First deployment: bootstrap, TLS, deploy
 
 Bootstrap installs Git, Python/venv, Nginx, CA certificates, Certbot, the
-unprivileged `ocp-packages` account, deployment directories, uv 0.12.5, the
-checksum-pinned Node.js 22.22.3 archive, and pnpm 11.22.0 through Corepack.
-Normal deployments also provision this pinned web runtime idempotently, so an
-existing Registry host can upgrade without a separate bootstrap run.
+unprivileged `ocp-packages` account, deployment directories, and uv 0.12.5.
+Before both bootstrap and normal deployment, the dedicated runtime role manages
+the NodeSource repository, installs the pinned Node.js 22.23.2 package, pins
+Corepack 0.35.0, enables its shims, and activates pnpm 11.22.0. As in the main
+Open City Planner deployment, the role requires the independently installed
+NodeSource signing key at `/usr/share/keyrings/nodesource.gpg`; it never
+downloads a repository key itself.
 
 ```bash
 uv run ansible-playbook -i inventory/production.ini playbooks/bootstrap.yml
@@ -128,7 +131,6 @@ the job receives Production credentials.
 ├── current -> releases/<sha>
 ├── artifacts/modules/    append-only `.ocp` mirror, never release-pruned
 ├── tools/uv/             pinned uv tooling venv
-├── tools/node-v*/        checksum-pinned Node.js runtime
 ├── .uv-cache/            Python dependency cache
 └── .pnpm-store/          frontend dependency cache
 ```
