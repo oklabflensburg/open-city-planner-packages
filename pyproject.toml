@@ -16,7 +16,11 @@ keywords = [
   "json-schema",
 ]
 dependencies = [
+  "fastapi==0.141.1",
   "jsonschema==4.25.1",
+  "packaging==26.3",
+  "pydantic==2.13.5",
+  "uvicorn==0.52.4",
 ]
 
 [project.urls]
@@ -28,6 +32,7 @@ Repository = "https://github.com/oklabflensburg/open-city-planner-packages"
 [dependency-groups]
 dev = [
   "ansible-core==2.19.12",
+  "httpx==0.28.1",
   "pytest==8.4.2",
   "pyyaml==6.0.3",
   "ruff==0.12.11",
@@ -36,7 +41,7 @@ dev = [
 [tool.pytest.ini_options]
 addopts = "-q"
 pythonpath = ["."]
-testpaths = ["tests"]
+testpaths = ["tests", "web/backend/tests"]
 markers = [
   "repository_history: tests that require a Git checkout with repository history",
 ]

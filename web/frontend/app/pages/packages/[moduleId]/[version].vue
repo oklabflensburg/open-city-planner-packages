@@ -1,0 +1,14 @@
+<script setup lang="ts">
+const route = useRoute()
+const id = String(route.params.moduleId)
+const versionId = String(route.params.version)
+const { $api } = useNuxtApp()
+const [{ data: pkg, error: packageError }, { data: release, error: releaseError }] = await Promise.all([
+  useAsyncData(`package-${id}`, () => $api.package(id)),
+  useAsyncData(`package-${id}-${versionId}`, () => $api.version(id, versionId)),
+])
+if (packageError.value || releaseError.value || !pkg.value || !release.value) throw createError({ statusCode: 404, statusMessage: 'Version not found' })
+usePageSeo(`${pkg.value.name} ${release.value.version}`, `${pkg.value.name} ${release.value.version} artifact, compatibility and provenance.`, `/packages/${id}/${versionId}`)
+const dependencies = computed(() => Object.entries(release.value!.requires.modules))
+</script>
+<template><div v-if="pkg && release" class="container-shell py-8"><nav class="text-sm text-slate-500" aria-label="Breadcrumb"><NuxtLink to="/packages">Packages</NuxtLink> › <NuxtLink :to="`/packages/${pkg.id}`">{{ pkg.name }}</NuxtLink> › {{ release.version }}</nav><header class="mt-7 flex flex-wrap items-center gap-4"><h1 class="page-title">{{ pkg.name }} {{ release.version }}</h1><PackageBadge :value="release.channel" /></header><div class="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]"><div class="grid gap-6"><section class="surface-card p-6"><h2 class="text-xl font-bold">Artifact</h2><div class="mt-5 flex flex-wrap items-center justify-between gap-4"><div><p class="font-medium">{{ pkg.id }}-{{ release.version }}.ocp</p><code class="mt-2 block break-all text-xs text-slate-500">{{ release.artifact.sha256 }}</code></div><a :href="release.artifact.url" class="primary-button" download>↓ Download</a></div></section><ProvenancePanel :pkg="pkg" :release="release" /><section class="surface-card p-6"><h2 class="text-xl font-bold">Module dependencies</h2><p v-if="!dependencies.length" class="mt-3 text-slate-600">No module dependencies.</p><dl v-else class="mt-4"><div v-for="dependency in dependencies" :key="dependency[0]" class="flex justify-between"><dt>{{ dependency[0] }}</dt><dd class="font-mono">{{ dependency[1] }}</dd></div></dl></section></div><aside class="grid h-fit gap-5"><DownloadCard :module-id="pkg.id" :release="release" /><section class="surface-card p-5"><h2 class="font-bold">Compatibility</h2><dl class="mt-4 grid gap-3 text-sm"><div><dt class="muted-label">Host</dt><dd class="font-mono">{{ release.requires.host }}</dd></div><div><dt class="muted-label">SDK</dt><dd class="font-mono">{{ release.requires.sdk }}</dd></div><div><dt class="muted-label">Channel</dt><dd class="capitalize">{{ release.channel }}</dd></div><div><dt class="muted-label">Bundle format</dt><dd>{{ release.bundle_format_version }}</dd></div></dl></section></aside></div></div></template>

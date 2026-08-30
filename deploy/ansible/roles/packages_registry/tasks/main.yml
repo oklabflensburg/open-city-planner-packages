@@ -6,6 +6,9 @@
       - packages_registry_min_release_free_bytes | int > 0
       - packages_registry_service_user != 'root'
       - packages_registry_service_group != 'root'
+      - packages_registry_backend_port | int > 1024
+      - packages_registry_frontend_port | int > 1024
+      - packages_registry_backend_port | int != packages_registry_frontend_port | int
       - packages_registry_root.startswith('/')
       - packages_registry_repo_path.startswith(packages_registry_root ~ '/')
       - packages_registry_releases_dir.startswith(packages_registry_root ~ '/')
@@ -67,6 +70,14 @@
       owner: "{{ packages_registry_service_user }}"
       group: "{{ packages_registry_service_group }}"
       mode: "0750"
+    - path: "{{ packages_registry_pnpm_store_dir }}"
+      owner: "{{ packages_registry_service_user }}"
+      group: "{{ packages_registry_service_group }}"
+      mode: "0750"
+    - path: "{{ packages_registry_root }}/.corepack"
+      owner: "{{ packages_registry_service_user }}"
+      group: "{{ packages_registry_service_group }}"
+      mode: "0750"
     - path: "{{ packages_registry_acme_webroot }}/.well-known/acme-challenge"
       owner: root
       group: www-data
@@ -87,6 +98,31 @@
      not packages_registry_uv_version_result.stdout.startswith(
        'uv ' ~ packages_registry_uv_version ~ ' '
      ))
+
+- name: Require pinned Node.js tooling from bootstrap
+  ansible.builtin.command:
+    argv:
+      - "{{ packages_registry_node_binary }}"
+      - --version
+  register: packages_registry_node_version_result
+  changed_when: false
+  failed_when: >-
+    packages_registry_node_version_result.rc != 0 or
+    packages_registry_node_version_result.stdout != 'v' ~ packages_registry_node_version
+
+- name: Require pinned pnpm tooling from bootstrap
+  ansible.builtin.command:
+    argv:
+      - "{{ packages_registry_pnpm_binary }}"
+      - --version
+  register: packages_registry_pnpm_version_result
+  environment:
+    COREPACK_HOME: "{{ packages_registry_root }}/.corepack"
+  become_user: "{{ packages_registry_service_user }}"
+  changed_when: false
+  failed_when: >-
+    packages_registry_pnpm_version_result.rc != 0 or
+    packages_registry_pnpm_version_result.stdout != packages_registry_pnpm_version
 
 - name: Update repository to requested ref without discarding local changes
   ansible.builtin.git:
@@ -232,6 +268,52 @@
     chdir: "{{ packages_registry_release_path }}"
   environment:
     UV_CACHE_DIR: "{{ packages_registry_uv_cache_dir }}"
+  become_user: "{{ packages_registry_service_user }}"
+
+- name: Install frontend dependencies from frozen lockfile
+  ansible.builtin.command:
+    argv:
+      - "{{ packages_registry_pnpm_binary }}"
+      - install
+      - --frozen-lockfile
+      - --store-dir
+      - "{{ packages_registry_pnpm_store_dir }}"
+    chdir: "{{ packages_registry_release_path }}/web/frontend"
+  environment:
+    COREPACK_HOME: "{{ packages_registry_root }}/.corepack"
+  become_user: "{{ packages_registry_service_user }}"
+
+- name: Type-check package explorer frontend
+  ansible.builtin.command:
+    argv:
+      - "{{ packages_registry_pnpm_binary }}"
+      - typecheck
+    chdir: "{{ packages_registry_release_path }}/web/frontend"
+  environment:
+    COREPACK_HOME: "{{ packages_registry_root }}/.corepack"
+  become_user: "{{ packages_registry_service_user }}"
+  changed_when: false
+
+- name: Test package explorer frontend
+  ansible.builtin.command:
+    argv:
+      - "{{ packages_registry_pnpm_binary }}"
+      - test
+    chdir: "{{ packages_registry_release_path }}/web/frontend"
+  environment:
+    COREPACK_HOME: "{{ packages_registry_root }}/.corepack"
+  become_user: "{{ packages_registry_service_user }}"
+  changed_when: false
+  when: packages_registry_run_tests | bool
+
+- name: Build package explorer SSR application
+  ansible.builtin.command:
+    argv:
+      - "{{ packages_registry_pnpm_binary }}"
+      - build
+    chdir: "{{ packages_registry_release_path }}/web/frontend"
+  environment:
+    COREPACK_HOME: "{{ packages_registry_root }}/.corepack"
   become_user: "{{ packages_registry_service_user }}"
 
 - name: Lint package registry release
@@ -450,6 +532,33 @@
   loop: "{{ packages_registry_tls_files.results | default([]) }}"
   when: packages_registry_manage_nginx | bool
 
+- name: Install package explorer systemd services
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "/etc/systemd/system/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - src: packages-registry-backend.service.j2
+      dest: packages-registry-backend.service
+    - src: packages-registry-frontend.service.j2
+      dest: packages-registry-frontend.service
+  register: packages_registry_service_units
+
+- name: Reload systemd after package explorer unit changes
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: packages_registry_service_units.changed
+
+- name: Enable package explorer services
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+  loop:
+    - packages-registry-backend.service
+    - packages-registry-frontend.service
+
 - name: Install package registry nginx vhost
   ansible.builtin.template:
     src: packages-registry.nginx.conf.j2
@@ -468,8 +577,13 @@
   when: packages_registry_manage_nginx | bool
   notify: Package registry nginx configuration changed
 
-- name: Validate and apply pending nginx configuration before activation
-  ansible.builtin.meta: flush_handlers
+- name: Validate pending nginx configuration before activation
+  ansible.builtin.command:
+    argv:
+      - nginx
+      - -t
+  changed_when: false
+  when: packages_registry_manage_nginx | bool
 
 - name: Activate package registry release with rollback protection
   block:
@@ -479,6 +593,27 @@
         dest: "{{ packages_registry_current_path }}"
         state: link
         force: true
+
+    - name: Restart package explorer services on the new release
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        state: restarted
+      loop:
+        - packages-registry-backend.service
+        - packages-registry-frontend.service
+
+    - name: Require healthy package explorer processes before proxy activation
+      ansible.builtin.uri:
+        url: "{{ item.url }}"
+        status_code: 200
+        return_content: true
+      loop:
+        - url: "http://127.0.0.1:{{ packages_registry_backend_port }}/api/v1/health"
+        - url: "http://127.0.0.1:{{ packages_registry_frontend_port }}/"
+      register: packages_registry_process_smoke
+      retries: 10
+      delay: 2
+      until: packages_registry_process_smoke.status == 200
 
     - name: Validate nginx configuration after release switch
       ansible.builtin.command:
@@ -513,6 +648,52 @@
           - packages_registry_local_smoke.json.modules is sequence
           - "'max-age=300' in packages_registry_local_smoke.cache_control"
         fail_msg: Local package registry smoke check returned an invalid response.
+      when: packages_registry_manage_nginx | bool
+
+    - name: Fetch package explorer through local TLS vhost
+      ansible.builtin.uri:
+        url: "https://127.0.0.1/"
+        headers:
+          Host: "{{ packages_registry_domain }}"
+        status_code: 200
+        return_content: true
+        validate_certs: false
+      register: packages_registry_local_web_smoke
+      when: packages_registry_manage_nginx | bool
+
+    - name: Require healthy local package explorer response
+      ansible.builtin.assert:
+        that:
+          - "'Open City Planner' in packages_registry_local_web_smoke.content"
+        fail_msg: Local package explorer smoke check returned an invalid response.
+      when: packages_registry_manage_nginx | bool
+
+    - name: Fetch package API through local TLS vhost
+      ansible.builtin.uri:
+        url: "https://127.0.0.1/api/v1/health"
+        headers:
+          Host: "{{ packages_registry_domain }}"
+        status_code: 200
+        return_content: true
+        validate_certs: false
+      register: packages_registry_local_api_smoke
+      failed_when: >-
+        packages_registry_local_api_smoke.status != 200 or
+        packages_registry_local_api_smoke.json.status != 'ok'
+      when: packages_registry_manage_nginx | bool
+
+    - name: Fetch characterization package through local API
+      ansible.builtin.uri:
+        url: "https://127.0.0.1/api/v1/packages/analysis-areas"
+        headers:
+          Host: "{{ packages_registry_domain }}"
+        status_code: 200
+        return_content: true
+        validate_certs: false
+      register: packages_registry_local_package_smoke
+      failed_when: >-
+        packages_registry_local_package_smoke.status != 200 or
+        packages_registry_local_package_smoke.json.id != 'analysis-areas'
       when: packages_registry_manage_nginx | bool
 
     - name: Fetch package registry index through public TLS endpoint
@@ -617,6 +798,24 @@
           ansible.builtin.file:
             path: "{{ packages_registry_current_path }}"
             state: absent
+          when: packages_registry_previous_release_path | length == 0
+
+        - name: Restart package explorer services after rollback
+          ansible.builtin.systemd_service:
+            name: "{{ item }}"
+            state: restarted
+          loop:
+            - packages-registry-backend.service
+            - packages-registry-frontend.service
+          when: packages_registry_previous_release_path | length > 0
+
+        - name: Stop package explorer services after failed first deployment
+          ansible.builtin.systemd_service:
+            name: "{{ item }}"
+            state: stopped
+          loop:
+            - packages-registry-frontend.service
+            - packages-registry-backend.service
           when: packages_registry_previous_release_path | length == 0
 
         - name: Validate nginx configuration after rollback

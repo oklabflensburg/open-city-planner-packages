@@ -23,6 +23,8 @@ def render_nginx() -> str:
         packages_registry_current_path="/opt/registry/current",
         packages_registry_artifact_root="/opt/registry/artifacts",
         packages_registry_nginx_site_name="packages",
+        packages_registry_backend_port=8100,
+        packages_registry_frontend_port=3000,
     )
 
 
@@ -61,6 +63,10 @@ def test_role_structure_and_required_defaults() -> None:
         "packages_registry_manage_nginx",
         "packages_registry_run_tests",
         "packages_registry_uv_version",
+        "packages_registry_node_version",
+        "packages_registry_pnpm_version",
+        "packages_registry_backend_port",
+        "packages_registry_frontend_port",
     }
     assert required <= defaults.keys()
     assert defaults["packages_registry_service_user"] != "root"
@@ -112,7 +118,7 @@ def test_validation_gates_are_mandatory_except_test_suite() -> None:
     ]
 
 
-def test_nginx_is_static_tls_only_with_required_headers() -> None:
+def test_nginx_preserves_static_registry_and_proxies_web_application() -> None:
     nginx = render_nginx()
     assert "{{" not in nginx
     assert "server_name packages.example.test;" in nginx
@@ -126,7 +132,9 @@ def test_nginx_is_static_tls_only_with_required_headers() -> None:
     assert "try_files $uri =404;" in nginx
     assert "autoindex off;" in nginx
     assert "ssl_certificate " in nginx
-    assert "proxy_pass" not in nginx
+    assert "proxy_pass http://127.0.0.1:8100;" in nginx
+    assert "proxy_pass http://127.0.0.1:3000;" in nginx
+    assert "location ^~ /api/" in nginx
     assert "Access-Control-Allow-Origin" not in nginx
     assert "/index.html" not in nginx
     assert "autoindex on" not in nginx
@@ -270,21 +278,17 @@ def test_remote_module_uploads_use_sticky_system_tmp() -> None:
     assert "host_key_checking = True" in config
 
 
-def test_deployment_does_not_add_an_application_runtime() -> None:
+def test_deployment_avoids_unrequested_stateful_infrastructure() -> None:
     deployment = "\n".join(
         read(path)
         for path in ANSIBLE.rglob("*")
         if path.is_file() and path.suffix in {".yml", ".j2", ".ini"}
     ).lower()
     forbidden = (
-        "proxy_pass",
-        "packages-registry.service",
-        "fastapi",
         "postgresql",
         "alembic",
         "redis",
         "docker",
-        "nodejs",
     )
     for value in forbidden:
         assert value not in deployment

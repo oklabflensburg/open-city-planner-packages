@@ -1,11 +1,11 @@
-# Ansible deployment for the static package registry
+# Ansible deployment for the package registry and explorer
 
 This directory deploys one immutable Git commit as a validated static release
 and provides a separate explicit operation for immutable `.ocp` publication.
-Nginx serves Registry JSON from `/opt/open-city-planner-packages/current/dist`
-and canonical bundle URLs from the persistent `artifacts/` tree. There is no
-registry application process, systemd application service, database, or runtime
-environment file.
+Nginx serves Registry JSON from `/opt/open-city-planner-packages/current/dist`,
+canonical bundle URLs from the persistent `artifacts/` tree, the read-only
+FastAPI service under `/api/`, and the Nuxt SSR explorer at `/`. There is no
+database or Registry write service.
 
 ## Prerequisites and inventory
 
@@ -29,9 +29,9 @@ ansible -i inventory/production.ini packages_registry -m ping
 
 ## First deployment: bootstrap, TLS, deploy
 
-Bootstrap installs only Git, Python/venv, Nginx, CA certificates, Certbot, the
-unprivileged `ocp-packages` account, deployment directories, and uv 0.12.5 in a
-root-owned tooling venv. It does not install Node.js or an application runtime.
+Bootstrap installs Git, Python/venv, Nginx, CA certificates, Certbot, the
+unprivileged `ocp-packages` account, deployment directories, uv 0.12.5, the
+checksum-pinned Node.js 22.22.3 archive, and pnpm 11.22.0 through Corepack.
 
 ```bash
 uv run ansible-playbook -i inventory/production.ini playbooks/bootstrap.yml
@@ -126,14 +126,17 @@ the job receives Production credentials.
 ├── current -> releases/<sha>
 ├── artifacts/modules/    append-only `.ocp` mirror, never release-pruned
 ├── tools/uv/             pinned uv tooling venv
-└── .uv-cache/            service-user-owned dependency cache
+├── tools/node-v*/        checksum-pinned Node.js runtime
+├── .uv-cache/            Python dependency cache
+└── .pnpm-store/          frontend dependency cache
 ```
 
 An incomplete existing SHA directory is removed and rebuilt. A release carrying
 `.release-ready` is reused but still revalidated. Before the marker and symlink
-switch, every deploy runs locked sync, Ruff, optional-on-by-default tests, the
-existing registry validator and builder, deterministic `dist/` comparison, and
-the whitespace check. Validation and deterministic build cannot be disabled.
+switch, every deploy runs locked Python and pnpm installs, Ruff, Python and
+frontend tests, frontend type checking and SSR build, the existing Registry
+validator and builder, deterministic `dist/` comparison, and the whitespace
+check. Validation and deterministic builds cannot be disabled.
 `dist/index.json` must be a non-empty regular Registry v1 file.
 
 Immediately after `.release-ready`, the role runs
@@ -158,21 +161,26 @@ HTTPS serves static JSON from `current/dist`, disables directory listing, sends
 `application/json`, five-minute cache headers, `nosniff`, and no wildcard CORS.
 Canonical `/modules/<id>/<version>/<id>-<version>.ocp` routes use the persistent
 artifact store, `application/octet-stream`, `nosniff`, and one-year immutable
-cache headers. There is no proxy, SPA fallback, or executable content handler.
+cache headers. `/api/` proxies only to the loopback FastAPI service and `/`
+proxies to the loopback Nuxt SSR service. Both systemd services run as
+`ocp-packages` and read the same active SHA release.
 
 Ansible validates Nginx before every reload. Activation switches `current`,
-reloads Nginx, and checks the local TLS vhost for HTTP 200, JSON content type,
-cache header, and `schema_version == 1`. The external HTTPS check validates the
+restarts both services, and checks `/`, `/api/v1/health`,
+`/api/v1/packages/analysis-areas`, and `/index.json`. The Registry check also
+requires HTTP 200, JSON content type, cache headers, and `schema_version == 1`.
+The external HTTPS check validates the
 public certificate by default; it can be disabled only for a deliberately
 offline staging run with `packages_registry_run_external_smoke_check=false`.
 For every artifact newly published by this deployment, the same rollback-protected
 block checks the public binary response headers and streams the public bytes to
 verify the reviewed SHA-256. An empty module list is valid.
 
-If activation, reload, or a smoke check fails, Ansible restores the previous
-symlink, validates/reloads Nginx, verifies the restored Registry v1 response,
-and still reports the original deployment error. On a failed first deployment,
-there is no rollback target, so the broken `current` link is removed. Failures
+If activation, service restart, reload, or a smoke check fails, Ansible restores
+the previous symlink, restarts both services, validates/reloads Nginx, verifies
+the restored Registry v1 response, and still reports the original deployment
+error. On a failed first deployment, there is no rollback target, so the broken
+`current` link is removed and both services are stopped. Failures
 before activation never touch the active release.
 
 After a successful smoke check, mtime-based retention keeps five releases by
@@ -207,8 +215,8 @@ are `0755`, and `www-data` has read access but no write ownership.
 
 The merged Registry PR already ran the pinned Host verifier against the same
 immutable URL and digest. The production playbook deliberately relies on that
-reviewed gate instead of installing the Host and Node.js on the static registry
-server. A prepared pinned checkout can still be supplied directly to the Python
+reviewed gate instead of installing the Open City Planner Host on the registry
+server. (The pinned Node.js runtime serves Nuxt only.) A prepared pinned Host checkout can still be supplied directly to the Python
 CLI with `--host-verifier-root` for an additional read-only `verify` pass.
 
 It is not required in the normal merge flow. After automatic or recovery
@@ -245,6 +253,7 @@ ls -la /opt/open-city-planner-packages/releases/
 find /opt/open-city-planner-packages/artifacts/modules -type f -name '*.ocp' -print
 curl --fail --show-error https://packages.stadtplaner.oklabflensburg.de/index.json
 sudo nginx -t
+sudo systemctl status packages-registry-backend packages-registry-frontend
 ```
 
 The safest manual rollback is a normal deployment with a previous SHA. In an
@@ -254,6 +263,7 @@ emergency, an operator may switch the link and validate before reload:
 sudo ln -sfn /opt/open-city-planner-packages/releases/<old-sha> \
   /opt/open-city-planner-packages/current
 sudo nginx -t
+sudo systemctl restart packages-registry-backend packages-registry-frontend
 sudo systemctl reload nginx
 curl --fail --show-error \
   https://packages.stadtplaner.oklabflensburg.de/index.json
