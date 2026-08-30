@@ -15,6 +15,7 @@ packages_registry_frontend_port: 3000
 
 packages_registry_service_user: ocp-packages
 packages_registry_service_group: ocp-packages
+packages_registry_service_home: /home/ocp-packages
 packages_registry_uv_version: 0.12.5
 packages_registry_run_tests: true
 packages_registry_release_retention: 5

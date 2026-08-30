@@ -57,6 +57,7 @@ def test_role_structure_and_required_defaults() -> None:
         "packages_registry_artifact_root",
         "packages_registry_service_user",
         "packages_registry_service_group",
+        "packages_registry_service_home",
         "packages_registry_domain",
         "packages_registry_certificate_name",
         "packages_registry_release_retention",
@@ -69,6 +70,7 @@ def test_role_structure_and_required_defaults() -> None:
     }
     assert required <= defaults.keys()
     assert defaults["packages_registry_service_user"] != "root"
+    assert defaults["packages_registry_service_home"] == "/home/ocp-packages"
     assert defaults["packages_registry_release_retention"] >= 2
     assert defaults["packages_registry_uv_version"] == "0.12.5"
     assert defaults["packages_registry_artifact_root"] == (
@@ -257,6 +259,9 @@ def test_normal_deploy_self_provisions_pinned_web_runtime() -> None:
     assert "Require the pinned Corepack version" in runtime
     assert "Require the pinned pnpm version" in runtime
     assert tasks.count("- corepack\n      - pnpm") == 4
+    assert "Ensure package registry service home is writable" in tasks
+    assert 'owner: "{{ packages_registry_service_user }}"' in tasks
+    assert "COREPACK_HOME" not in tasks
     assert "curl" not in runtime and "| sh" not in runtime
 
 
