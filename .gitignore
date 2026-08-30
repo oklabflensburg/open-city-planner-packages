@@ -8,4 +8,5 @@ web/frontend/node_modules/
 web/frontend/.nuxt/
 web/frontend/.output/
 web/frontend/coverage/
+web/frontend/.nuxtrc
 *.py[cod]

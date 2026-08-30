@@ -29,7 +29,7 @@ def test_production_deploy_runs_only_after_successful_main_ci() -> None:
     assert deploy["if"] == (
         "github.event_name == 'push' && github.ref == 'refs/heads/main'"
     )
-    assert set(deploy["needs"]) == {"validate", "ansible"}
+    assert set(deploy["needs"]) == {"validate", "ansible", "web"}
     assert deploy["environment"] == {"name": "production"}
     assert deploy["permissions"] == {"contents": "read"}
     assert deploy["concurrency"] == {
@@ -99,6 +99,20 @@ def test_all_workflow_actions_remain_pinned_to_full_commit_sha() -> None:
     uses = re.findall(r"^\s*uses:\s*([^\s#]+)", workflow_source(), flags=re.MULTILINE)
     assert uses
     assert all(re.fullmatch(r"[^@]+@[0-9a-f]{40}", action) for action in uses)
+
+
+def test_web_job_runs_locked_frontend_quality_gates() -> None:
+    web = workflow()["jobs"]["web"]
+    assert web["timeout-minutes"] == "15"
+    steps = {step["name"]: step for step in web["steps"]}
+    assert steps["Set up pinned Node.js"]["with"]["node-version"] == "22.22.3"
+    assert steps["Set up pinned pnpm"]["with"]["version"] == "11.22.0"
+    assert steps["Install locked frontend dependencies"]["run"] == (
+        "pnpm install --frozen-lockfile"
+    )
+    assert steps["Type-check package explorer"]["run"] == "pnpm typecheck"
+    assert steps["Test package explorer"]["run"] == "pnpm test"
+    assert steps["Build package explorer SSR application"]["run"] == "pnpm build"
 
 
 def test_main_pushes_are_not_cancelled_and_production_deploys_serialize() -> None:
