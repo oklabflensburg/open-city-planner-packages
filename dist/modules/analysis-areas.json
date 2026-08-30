@@ -14,7 +14,7 @@
     {
       "artifact": {
         "sha256": "7006f31ea73f40e38f63d2065652c27ad5d3391ddcc8cfad2f149993efef3dcf",
-        "url": "https://github.com/oklabflensburg/ocp-module-analysis-areas/releases/download/v1.0.0/analysis-areas-1.0.0.ocp"
+        "url": "https://packages.stadtplaner.oklabflensburg.de/modules/analysis-areas/1.0.0/analysis-areas-1.0.0.ocp"
       },
       "bundle_format_version": 1,
       "channel": "stable",
