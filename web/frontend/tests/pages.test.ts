@@ -6,6 +6,7 @@ import PackageListPage from '~/pages/packages/index.vue'
 import PackageDetailPage from '~/pages/packages/[moduleId]/index.vue'
 import VersionDetailPage from '~/pages/packages/[moduleId]/[version].vue'
 import PublishersPage from '~/pages/publishers/index.vue'
+import { packageFiltersFromQuery, packageFiltersToQuery } from '~/lib/packageFilters'
 import type { PackageDetail, PackageRelease, PackageSummary } from '~/types/api'
 
 const release: PackageRelease = {
@@ -40,7 +41,7 @@ describe('data-backed pages', () => {
 
   it('renders the landing page from API data', async () => {
     const wrapper = await mountSuspended(LandingPage, { route: '/' })
-    expect(wrapper.text()).toContain('Discover and use')
+    expect(wrapper.text()).toContain('Find verified modules')
     expect(wrapper.text()).toContain('Analysis Areas')
   })
 
@@ -59,8 +60,23 @@ describe('data-backed pages', () => {
   it('renders version detail compatibility and artifact data', async () => {
     const wrapper = await mountSuspended(VersionDetailPage, { route: '/packages/analysis-areas/1.0.0' })
     expect(wrapper.text()).toContain('Analysis Areas 1.0.0')
-    expect(wrapper.text()).toContain('Bundle format')
+    expect(wrapper.text()).toContain('bundle v1')
     expect(wrapper.text()).toContain(release.artifact.sha256)
+  })
+
+  it('loads every package filter from the shareable URL', async () => {
+    const filters = packageFiltersFromQuery({
+      q: 'analysis', publisher: 'oklabflensburg', classification: 'first-party',
+      channel: 'stable', host: '0.2.0', sdk: '1.9.0', sort: 'name',
+    })
+    expect(filters).toEqual(expect.objectContaining({
+      q: 'analysis', publisher: 'oklabflensburg', classification: 'first-party',
+      channel: 'stable', host: '0.2.0', sdk: '1.9.0', sort: 'name',
+    }))
+    expect(packageFiltersToQuery(filters)).toEqual({
+      q: 'analysis', publisher: 'oklabflensburg', classification: 'first-party',
+      channel: 'stable', host: '0.2.0', sdk: '1.9.0', sort: 'name',
+    })
   })
 
   it('renders aggregated publishers without invented downloads', async () => {

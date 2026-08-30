@@ -1,11 +1,13 @@
 import { mountSuspended } from '@nuxt/test-utils/runtime'
 import { flushPromises } from '@vue/test-utils'
-import { useNuxtApp } from '#app'
+import { useNuxtApp, useRouter } from '#app'
 import { describe, expect, it, vi } from 'vitest'
 import AppHeader from '~/components/AppHeader.vue'
 import DownloadCard from '~/components/DownloadCard.vue'
 import GlobalPackageSearch from '~/components/GlobalPackageSearch.vue'
 import PackageCard from '~/components/PackageCard.vue'
+import PackageListItem from '~/components/PackageListItem.vue'
+import SearchCommandPalette from '~/components/SearchCommandPalette.vue'
 import type { PackageRelease, PackageSummary } from '~/types/api'
 
 const pkg: PackageSummary = {
@@ -42,6 +44,13 @@ describe('package explorer UI', () => {
     expect(wrapper.text()).toContain('1.0.0')
   })
 
+  it('renders a compact package result as a real canonical link', async () => {
+    const wrapper = await mountSuspended(PackageListItem, { props: { pkg, showCompatibility: true } })
+    expect(wrapper.get('a').attributes('href')).toBe('/packages/analysis-areas')
+    expect(wrapper.text()).toContain('analysis-areas')
+    expect(wrapper.text()).toContain('>=0.2.0,<1.0.0')
+  })
+
   it('uses the registry artifact URL directly for downloads', async () => {
     const wrapper = await mountSuspended(DownloadCard, {
       props: { moduleId: pkg.id, release },
@@ -66,15 +75,41 @@ describe('package explorer UI', () => {
     vi.useFakeTimers()
     const search = vi.fn().mockResolvedValue({ items: [pkg], total: 1, limit: 8, offset: 0, query: 'analysis' })
     useNuxtApp().$api.search = search
-    const wrapper = await mountSuspended(GlobalPackageSearch)
+    const wrapper = await mountSuspended(GlobalPackageSearch, { attachTo: document.body })
     const input = wrapper.get('input')
     await input.setValue('analysis')
-    await vi.advanceTimersByTimeAsync(221)
+    await vi.advanceTimersByTimeAsync(161)
     await flushPromises()
-    expect(search).toHaveBeenCalledWith('analysis')
+    expect(search).toHaveBeenCalledWith('analysis', 8, expect.any(AbortSignal))
     expect(wrapper.get('[role="listbox"]').text()).toContain('Analysis Areas')
     await input.trigger('keydown', { key: 'ArrowDown' })
     expect(wrapper.get('[role="option"]').attributes('aria-selected')).toBe('true')
+    const push = vi.spyOn(useRouter(), 'push')
+    await input.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(push).toHaveBeenCalledWith('/packages/analysis-areas')
     vi.useRealTimers()
+  })
+
+  it('focuses global search with slash and closes results with Escape', async () => {
+    const wrapper = await mountSuspended(GlobalPackageSearch)
+    const input = wrapper.get('input')
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: '/' }))
+    await flushPromises()
+    expect(document.activeElement?.id).toBe(input.attributes('id'))
+    expect(input.attributes('aria-expanded')).toBe('true')
+    await input.trigger('keydown', { key: 'Escape' })
+    expect(input.attributes('aria-expanded')).toBe('false')
+  })
+
+  it('opens the command palette with Ctrl+K and closes it with Escape', async () => {
+    const wrapper = await mountSuspended(SearchCommandPalette, { attachTo: document.body })
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))
+    await flushPromises()
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    wrapper.unmount()
   })
 })

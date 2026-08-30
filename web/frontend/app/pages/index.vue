@@ -1,23 +1,13 @@
 <script setup lang="ts">
 const { $api } = useNuxtApp()
-const { data } = await useAsyncData('featured-packages', () => $api.packages({ limit: 4, sort: 'name' }))
-usePageSeo('Open City Planner Packages', 'Discover secure, verified and compatible Open City Planner modules.', '/')
-const benefits = [
-  ['Verified & secure', 'Reviewed metadata, immutable SHA-256 digests and a controlled publishing pipeline.'],
-  ['Compatible', 'Host, SDK and module requirements are visible before download.'],
-  ['Transparent', 'Open source, license and provenance remain part of every release.'],
-  ['Community driven', 'First-party and reviewed-community packages share one Registry v1 contract.'],
+const { data } = await useAsyncData('featured-packages', () => $api.packages({ limit: 6, sort: 'name' }))
+usePageSeo('Open City Planner Packages', 'Find verified, compatible and immutable Open City Planner modules.', '/')
+const trustSignals = [
+  ['Verified metadata', 'Validated Registry v1 contracts'],
+  ['Immutable artifacts', 'Digest-bound .ocp releases'],
+  ['Host compatibility', 'Requirements visible before download'],
+  ['Open provenance', 'Source, tag and commit attached'],
 ]
 </script>
-<template>
-  <div>
-    <section class="relative overflow-hidden bg-navy-950 text-white">
-      <div class="absolute inset-0 opacity-20" style="background-image: radial-gradient(circle at 75% 20%, #22c55e 0, transparent 22%), linear-gradient(135deg, transparent 45%, #1e3a5f 46%, transparent 47%)" />
-      <div class="container-shell relative grid min-h-[500px] items-center py-16 lg:grid-cols-[1fr_0.8fr]">
-        <div class="max-w-2xl"><p class="eyebrow text-brand-500">Registry v1 package explorer</p><h1 class="mt-5 text-4xl font-bold tracking-tight sm:text-6xl">Discover and use<br>Open City Planner <span class="text-brand-500">modules</span></h1><p class="mt-6 max-w-xl text-lg leading-8 text-slate-300">A registry of secure, verified and compatible modules for the Open City Planner ecosystem.</p><div class="mt-8 max-w-xl"><GlobalPackageSearch /></div><div class="mt-6 flex flex-wrap gap-3"><NuxtLink to="/packages" class="primary-button">Browse all packages</NuxtLink><NuxtLink to="/docs" class="inline-flex items-center px-4 py-3 font-semibold text-white">Publish a module →</NuxtLink></div></div>
-      </div>
-    </section>
-    <section class="container-shell py-14"><div class="flex items-end justify-between"><div><p class="eyebrow">Reviewed releases</p><h2 class="mt-2 text-2xl font-bold">Featured packages</h2></div><NuxtLink to="/packages" class="text-sm font-semibold text-link-700">View all packages →</NuxtLink></div><div class="mt-7 grid gap-5 md:grid-cols-2 xl:grid-cols-4"><PackageCard v-for="pkg in data?.items || []" :key="pkg.id" :pkg="pkg" compact /></div></section>
-    <section class="container-shell pb-6"><div class="surface-card p-7 sm:p-10"><p class="eyebrow">Built for confidence</p><h2 class="mt-2 text-2xl font-bold">Why Open City Planner Packages?</h2><div class="mt-8 grid gap-8 sm:grid-cols-2 lg:grid-cols-4"><article v-for="(benefit, index) in benefits" :key="benefit[0]"><div class="grid size-10 place-items-center rounded-lg bg-slate-100 font-bold text-brand-700">{{ index + 1 }}</div><h3 class="mt-4 font-bold">{{ benefit[0] }}</h3><p class="mt-2 text-sm leading-6 text-slate-600">{{ benefit[1] }}</p></article></div></div></section>
-  </div>
-</template>
+
+<template><div><section class="border-b border-slate-200 bg-white"><div class="container-shell grid gap-10 py-12 lg:grid-cols-[minmax(0,1fr)_280px] lg:py-16"><div class="max-w-3xl"><p class="eyebrow">Registry v1 package explorer</p><h1 class="mt-3 text-4xl font-bold tracking-tight text-navy-950 sm:text-5xl">Find verified modules for<br><span class="text-brand-600">Open City Planner.</span></h1><p class="mt-4 max-w-2xl text-lg text-slate-600">Search packages, check compatibility and provenance, then download the immutable <code>.ocp</code> release.</p><div class="mt-7 max-w-2xl"><GlobalPackageSearch prominent /></div><p class="mt-3 text-sm text-slate-500"><strong class="text-slate-800">{{ data?.total || 0 }} {{ data?.total === 1 ? 'package' : 'packages' }}</strong> · Registry v1 · First-party and reviewed modules</p></div><aside class="hidden border-l border-slate-200 pl-7 lg:block"><p class="muted-label">Keyboard first</p><dl class="mt-4 grid gap-4 text-sm"><div><dt class="font-semibold">Focus search</dt><dd class="mt-1 text-slate-500"><KeyboardHint :keys="['/']" /></dd></div><div><dt class="font-semibold">Command palette</dt><dd class="mt-1 flex items-center gap-2 text-slate-500"><KeyboardHint :keys="['Ctrl', 'K']" /> or <KeyboardHint :keys="['⌘', 'K']" /></dd></div><div><dt class="font-semibold">Navigate results</dt><dd class="mt-1 text-slate-500">↑ ↓ then Enter</dd></div></dl></aside></div></section><section class="container-shell py-10"><div class="flex items-end justify-between gap-4"><div><p class="eyebrow">Package discovery</p><h2 class="mt-1 text-2xl font-bold">Featured and recent packages</h2></div><NuxtLink to="/packages" class="text-link shrink-0">View all →</NuxtLink></div><div class="mt-5 border-y border-slate-200"><PackageListItem v-for="pkg in data?.items || []" :key="pkg.id" :pkg="pkg" /></div></section><section class="container-shell pb-5"><div class="grid border-y border-slate-200 sm:grid-cols-2 lg:grid-cols-4"><article v-for="(signal, index) in trustSignals" :key="signal[0]" class="px-1 py-5 sm:px-5" :class="index ? 'sm:border-l sm:border-slate-200' : ''"><h2 class="text-sm font-bold">{{ signal[0] }}</h2><p class="mt-1 text-xs leading-5 text-slate-500">{{ signal[1] }}</p></article></div></section></div></template>

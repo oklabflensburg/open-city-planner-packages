@@ -1,8 +1,1 @@
-<template>
-  <footer class="mt-20 border-t border-slate-200 bg-white">
-    <div class="container-shell grid gap-8 py-10 text-sm text-slate-600 sm:grid-cols-2">
-      <div><p class="font-bold text-slate-950">Open City Planner Packages</p><p class="mt-2 max-w-md">A transparent Registry v1 explorer for reviewed Open City Planner modules.</p></div>
-      <nav class="flex gap-5 sm:justify-end" aria-label="Footer navigation"><NuxtLink to="/docs">Documentation</NuxtLink><NuxtLink to="/about">About</NuxtLink><a href="https://github.com/oklabflensburg/open-city-planner-packages">Source</a></nav>
-    </div>
-  </footer>
-</template>
+<template><footer class="mt-16 border-t border-slate-200 bg-white"><div class="container-shell flex flex-col gap-5 py-7 text-sm text-slate-600 md:flex-row md:items-center"><div class="md:mr-auto"><p class="font-bold text-slate-950">Open City Planner Packages</p><p class="mt-1 text-xs">Registry v1 · Immutable reviewed releases</p></div><nav class="flex flex-wrap gap-x-5 gap-y-2" aria-label="Footer navigation"><NuxtLink to="/packages">Packages</NuxtLink><NuxtLink to="/docs">Documentation</NuxtLink><a href="https://github.com/oklabflensburg/open-city-planner-packages">Source</a><a href="https://stadtplaner.oklabflensburg.de">Open City Planner</a><a href="https://oklabflensburg.de">OK Lab Flensburg</a></nav></div></footer></template>

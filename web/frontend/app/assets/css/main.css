@@ -10,22 +10,24 @@
   --color-brand-100: #dcfce7;
   --color-link-700: #1d4ed8;
   --font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
-  --shadow-card: 0 12px 30px rgb(15 23 42 / 0.08);
+  --shadow-card: 0 10px 28px rgb(15 23 42 / 0.07);
 }
 
 @layer base {
   html { scroll-behavior: smooth; }
-  body { @apply m-0 bg-slate-50 text-slate-950 antialiased; }
+  body { @apply m-0 bg-slate-50 text-slate-950 antialiased selection:bg-brand-100 selection:text-brand-700; }
   a, button, input, select { @apply focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500; }
   button, select { @apply cursor-pointer; }
 }
 
 @layer components {
   .container-shell { @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8; }
-  .surface-card { @apply rounded-2xl border border-slate-200 bg-white shadow-card; }
+  .surface-card { @apply rounded-xl border border-slate-200 bg-white shadow-card; }
   .page-title { @apply text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl; }
   .eyebrow { @apply text-xs font-bold uppercase tracking-[0.16em] text-brand-700; }
-  .primary-button { @apply inline-flex items-center justify-center rounded-xl bg-brand-600 px-5 py-3 font-semibold text-white transition hover:bg-brand-700; }
-  .secondary-button { @apply inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-5 py-3 font-semibold text-slate-800 transition hover:border-slate-400 hover:bg-slate-50; }
+  .primary-button { @apply inline-flex items-center justify-center rounded-lg bg-navy-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-navy-800; }
+  .secondary-button { @apply inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:border-slate-400 hover:bg-slate-50; }
   .muted-label { @apply text-xs font-semibold uppercase tracking-wide text-slate-500; }
+  .text-link { @apply font-medium text-link-700 hover:underline; }
+  .metadata-row { @apply grid grid-cols-[minmax(5.5rem,0.7fr)_minmax(0,1.3fr)] gap-3 border-b border-slate-100 py-2.5 last:border-0; }
 }

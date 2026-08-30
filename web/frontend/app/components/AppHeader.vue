@@ -1,34 +1,8 @@
 <script setup lang="ts">
-const open = ref(false)
+const menuOpen = ref(false)
 const route = useRoute()
-watch(() => route.fullPath, () => { open.value = false })
+watch(() => route.fullPath, () => { menuOpen.value = false })
+function openPalette() { window.dispatchEvent(new Event('ocp:open-command-palette')) }
 </script>
 
-<template>
-  <header class="sticky top-0 z-50 border-b border-white/10 bg-navy-950 text-white">
-    <a href="#main-content" class="sr-only focus:not-sr-only">Skip to content</a>
-    <div class="container-shell flex h-16 items-center gap-4">
-      <NuxtLink to="/" class="flex shrink-0 items-center gap-2 font-bold" aria-label="Open City Planner Packages home">
-        <span class="grid size-9 place-items-center rounded-lg border border-white/30 text-lg">⌬</span>
-        <span class="hidden leading-tight sm:block">Open City Planner<br><span class="text-xs font-medium text-slate-300">Packages</span></span>
-      </NuxtLink>
-      <div class="hidden min-w-0 flex-1 lg:block"><GlobalPackageSearch compact /></div>
-      <nav class="ml-auto hidden items-center gap-5 text-sm font-medium lg:flex" aria-label="Primary navigation">
-        <NuxtLink to="/packages" active-class="text-brand-500">Packages</NuxtLink>
-        <NuxtLink to="/publishers" active-class="text-brand-500">Publishers</NuxtLink>
-        <NuxtLink to="/docs" active-class="text-brand-500">Documentation</NuxtLink>
-        <NuxtLink to="/about" active-class="text-brand-500">About</NuxtLink>
-        <a href="https://github.com/oklabflensburg/open-city-planner-packages" rel="noreferrer" aria-label="GitHub repository">GitHub</a>
-      </nav>
-      <button class="ml-auto rounded-lg p-2 lg:hidden" type="button" :aria-expanded="open" aria-controls="mobile-menu" aria-label="Toggle navigation" @click="open = !open">
-        <span aria-hidden="true" class="text-2xl">{{ open ? '×' : '☰' }}</span>
-      </button>
-    </div>
-    <div v-if="open" id="mobile-menu" class="container-shell border-t border-white/10 py-4 lg:hidden">
-      <GlobalPackageSearch compact />
-      <nav class="mt-4 grid gap-1" aria-label="Mobile navigation">
-        <NuxtLink v-for="item in [['Packages','/packages'],['Publishers','/publishers'],['Documentation','/docs'],['About','/about']]" :key="item[1]" :to="item[1]" class="rounded-lg px-3 py-3 hover:bg-white/10">{{ item[0] }}</NuxtLink>
-      </nav>
-    </div>
-  </header>
-</template>
+<template><header class="sticky top-0 z-40 border-b border-white/10 bg-navy-950 text-white shadow-sm"><a href="#main-content" class="sr-only focus:not-sr-only">Skip to content</a><div class="container-shell flex h-16 items-center gap-4"><NuxtLink to="/" class="flex shrink-0 items-center gap-2 font-bold" aria-label="Open City Planner Packages home"><span class="grid size-8 place-items-center rounded-md border border-white/30 text-base" aria-hidden="true">⌬</span><span class="hidden text-sm leading-[1.05] sm:block">Open City Planner<br><span class="text-[11px] font-medium text-slate-300">Packages</span></span></NuxtLink><div class="hidden min-w-48 max-w-2xl flex-1 md:block"><GlobalPackageSearch compact /></div><nav class="ml-auto hidden items-center gap-4 text-sm font-medium lg:flex" aria-label="Primary navigation"><NuxtLink to="/packages" active-class="text-brand-500">Packages</NuxtLink><NuxtLink to="/publishers" active-class="text-brand-500">Publishers</NuxtLink><NuxtLink to="/docs" active-class="text-brand-500">Docs</NuxtLink><a href="https://github.com/oklabflensburg/open-city-planner-packages" rel="noreferrer" aria-label="GitHub repository">GitHub</a></nav><button type="button" class="ml-auto rounded-lg border border-white/20 px-2.5 py-2 text-sm md:hidden" aria-label="Open package search" @click="openPalette">⌕</button><button class="rounded-lg p-2 lg:hidden" type="button" :aria-expanded="menuOpen" aria-controls="mobile-menu" aria-label="Toggle navigation" @click="menuOpen = !menuOpen"><span aria-hidden="true" class="text-xl">{{ menuOpen ? '×' : '☰' }}</span></button></div><div v-if="menuOpen" id="mobile-menu" class="container-shell border-t border-white/10 py-3 lg:hidden"><button type="button" class="mb-2 flex w-full items-center justify-between rounded-lg bg-white px-3 py-3 text-left text-sm text-slate-500 md:hidden" @click="openPalette"><span>Search packages…</span><KeyboardHint :keys="['Ctrl', 'K']" /></button><nav class="grid grid-cols-2 gap-1 text-sm md:grid-cols-4" aria-label="Mobile navigation"><NuxtLink v-for="item in [['Packages','/packages'],['Publishers','/publishers'],['Docs','/docs'],['About','/about']]" :key="item[1]" :to="item[1]" class="rounded-lg px-3 py-2.5 hover:bg-white/10">{{ item[0] }}</NuxtLink></nav></div><SearchCommandPalette /></header></template>
