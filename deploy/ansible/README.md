@@ -36,7 +36,9 @@ the NodeSource repository, installs the pinned Node.js 22.23.2 package, pins
 Corepack 0.35.0, enables its shims, and activates pnpm 11.22.0. As in the main
 Open City Planner deployment, the role requires the independently installed
 NodeSource signing key at `/usr/share/keyrings/nodesource.gpg`; it never
-downloads a repository key itself.
+downloads a repository key itself. The unprivileged service account has a
+managed, writable `/home/ocp-packages` so Corepack can use its standard cache
+location, matching the reference deployment's execution under its service user.
 
 ```bash
 uv run ansible-playbook -i inventory/production.ini playbooks/bootstrap.yml
