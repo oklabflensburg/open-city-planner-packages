@@ -5,6 +5,8 @@
   serial: 1
   vars_files:
     - ../roles/packages_registry/defaults/main.yml
+  roles:
+    - role: packages_registry_runtime
   tasks:
     - name: Install package registry operating-system prerequisites
       ansible.builtin.apt:
@@ -73,28 +75,6 @@
           owner: "{{ packages_registry_service_user }}"
           group: "{{ packages_registry_service_group }}"
           mode: "0750"
-        - path: "{{ packages_registry_root }}/.corepack"
-          owner: "{{ packages_registry_service_user }}"
-          group: "{{ packages_registry_service_group }}"
-          mode: "0750"
-
-    - name: Install pinned package explorer tooling
-      ansible.builtin.import_tasks: ../roles/packages_registry/tasks/web_tooling.yml
-
-    - name: Verify pinned pnpm installation
-      ansible.builtin.command:
-        argv:
-          - "{{ packages_registry_pnpm_binary }}"
-          - --version
-      register: packages_registry_verified_pnpm
-      environment:
-        COREPACK_HOME: "{{ packages_registry_root }}/.corepack"
-      become_user: "{{ packages_registry_service_user }}"
-      changed_when: false
-      failed_when: >-
-        packages_registry_verified_pnpm.rc != 0 or
-        packages_registry_verified_pnpm.stdout != packages_registry_pnpm_version
-
     - name: Create isolated uv tooling environment
       ansible.builtin.command:
         argv:

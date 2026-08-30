@@ -10,13 +10,6 @@ packages_registry_artifact_root: "{{ packages_registry_root }}/artifacts"
 packages_registry_uv_venv: "{{ packages_registry_root }}/tools/uv"
 packages_registry_uv_cache_dir: "{{ packages_registry_root }}/.uv-cache"
 packages_registry_pnpm_store_dir: "{{ packages_registry_root }}/.pnpm-store"
-packages_registry_node_version: 22.22.3
-packages_registry_node_archive_sha256: 2e5d13569282d016861fae7c8f935e741693c269101a5bebcf761a5376d1f99f
-packages_registry_node_root: "{{ packages_registry_root }}/tools/node-v{{ packages_registry_node_version }}-linux-x64"
-packages_registry_node_binary: "{{ packages_registry_node_root }}/bin/node"
-packages_registry_corepack_binary: "{{ packages_registry_node_root }}/bin/corepack"
-packages_registry_pnpm_binary: "{{ packages_registry_node_root }}/bin/pnpm"
-packages_registry_pnpm_version: 11.22.0
 packages_registry_backend_port: 8100
 packages_registry_frontend_port: 3000
 

@@ -5,4 +5,5 @@
   serial: 1
   any_errors_fatal: true
   roles:
+    - role: packages_registry_runtime
     - role: packages_registry

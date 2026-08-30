@@ -74,10 +74,6 @@
       owner: "{{ packages_registry_service_user }}"
       group: "{{ packages_registry_service_group }}"
       mode: "0750"
-    - path: "{{ packages_registry_root }}/.corepack"
-      owner: "{{ packages_registry_service_user }}"
-      group: "{{ packages_registry_service_group }}"
-      mode: "0750"
     - path: "{{ packages_registry_acme_webroot }}/.well-known/acme-challenge"
       owner: root
       group: www-data
@@ -98,34 +94,6 @@
      not packages_registry_uv_version_result.stdout.startswith(
        'uv ' ~ packages_registry_uv_version ~ ' '
      ))
-
-- name: Provision pinned package explorer tooling
-  ansible.builtin.import_tasks: web_tooling.yml
-
-- name: Require pinned Node.js runtime
-  ansible.builtin.command:
-    argv:
-      - "{{ packages_registry_node_binary }}"
-      - --version
-  register: packages_registry_node_version_result
-  changed_when: false
-  failed_when: >-
-    packages_registry_node_version_result.rc != 0 or
-    packages_registry_node_version_result.stdout != 'v' ~ packages_registry_node_version
-
-- name: Require pinned pnpm runtime
-  ansible.builtin.command:
-    argv:
-      - "{{ packages_registry_pnpm_binary }}"
-      - --version
-  register: packages_registry_pnpm_version_result
-  environment:
-    COREPACK_HOME: "{{ packages_registry_root }}/.corepack"
-  become_user: "{{ packages_registry_service_user }}"
-  changed_when: false
-  failed_when: >-
-    packages_registry_pnpm_version_result.rc != 0 or
-    packages_registry_pnpm_version_result.stdout != packages_registry_pnpm_version
 
 - name: Update repository to requested ref without discarding local changes
   ansible.builtin.git:
@@ -276,35 +244,32 @@
 - name: Install frontend dependencies from frozen lockfile
   ansible.builtin.command:
     argv:
-      - "{{ packages_registry_pnpm_binary }}"
+      - corepack
+      - pnpm
       - install
       - --frozen-lockfile
       - --store-dir
       - "{{ packages_registry_pnpm_store_dir }}"
     chdir: "{{ packages_registry_release_path }}/web/frontend"
-  environment:
-    COREPACK_HOME: "{{ packages_registry_root }}/.corepack"
   become_user: "{{ packages_registry_service_user }}"
 
 - name: Type-check package explorer frontend
   ansible.builtin.command:
     argv:
-      - "{{ packages_registry_pnpm_binary }}"
+      - corepack
+      - pnpm
       - typecheck
     chdir: "{{ packages_registry_release_path }}/web/frontend"
-  environment:
-    COREPACK_HOME: "{{ packages_registry_root }}/.corepack"
   become_user: "{{ packages_registry_service_user }}"
   changed_when: false
 
 - name: Test package explorer frontend
   ansible.builtin.command:
     argv:
-      - "{{ packages_registry_pnpm_binary }}"
+      - corepack
+      - pnpm
       - test
     chdir: "{{ packages_registry_release_path }}/web/frontend"
-  environment:
-    COREPACK_HOME: "{{ packages_registry_root }}/.corepack"
   become_user: "{{ packages_registry_service_user }}"
   changed_when: false
   when: packages_registry_run_tests | bool
@@ -312,11 +277,10 @@
 - name: Build package explorer SSR application
   ansible.builtin.command:
     argv:
-      - "{{ packages_registry_pnpm_binary }}"
+      - corepack
+      - pnpm
       - build
     chdir: "{{ packages_registry_release_path }}/web/frontend"
-  environment:
-    COREPACK_HOME: "{{ packages_registry_root }}/.corepack"
   become_user: "{{ packages_registry_service_user }}"
 
 - name: Lint package registry release

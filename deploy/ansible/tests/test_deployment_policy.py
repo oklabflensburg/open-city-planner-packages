@@ -6,6 +6,7 @@ from jinja2 import Environment, StrictUndefined
 ROOT = Path(__file__).resolve().parents[3]
 ANSIBLE = ROOT / "deploy" / "ansible"
 ROLE = ANSIBLE / "roles" / "packages_registry"
+RUNTIME_ROLE = ANSIBLE / "roles" / "packages_registry_runtime"
 
 
 def read(path: Path) -> str:
@@ -32,9 +33,9 @@ def test_all_ansible_yaml_is_parseable() -> None:
     yaml_files = [
         *ANSIBLE.glob("playbooks/*.yml"),
         *ANSIBLE.glob("inventory/group_vars/*.yml"),
-        *ROLE.glob("defaults/*.yml"),
-        *ROLE.glob("tasks/*.yml"),
-        *ROLE.glob("handlers/*.yml"),
+        *ANSIBLE.glob("roles/*/defaults/*.yml"),
+        *ANSIBLE.glob("roles/*/tasks/*.yml"),
+        *ANSIBLE.glob("roles/*/handlers/*.yml"),
     ]
     assert yaml_files
     for path in yaml_files:
@@ -63,8 +64,6 @@ def test_role_structure_and_required_defaults() -> None:
         "packages_registry_manage_nginx",
         "packages_registry_run_tests",
         "packages_registry_uv_version",
-        "packages_registry_node_version",
-        "packages_registry_pnpm_version",
         "packages_registry_backend_port",
         "packages_registry_frontend_port",
     }
@@ -236,25 +235,29 @@ def test_bootstrap_uses_pinned_uv_without_download_script() -> None:
 def test_normal_deploy_self_provisions_pinned_web_runtime() -> None:
     tasks = read(ROLE / "tasks" / "main.yml")
     bootstrap = read(ANSIBLE / "playbooks" / "bootstrap.yml")
-    tooling = read(ROLE / "tasks" / "web_tooling.yml")
-    defaults = yaml.safe_load(read(ROLE / "defaults" / "main.yml"))
-    assert defaults["packages_registry_node_version"] == "22.22.3"
+    runtime = read(RUNTIME_ROLE / "tasks" / "main.yml")
+    defaults = yaml.safe_load(read(RUNTIME_ROLE / "defaults" / "main.yml"))
+    deploy = yaml.safe_load(read(ANSIBLE / "playbooks" / "deploy.yml"))
+    bootstrap_play = yaml.safe_load(bootstrap)
+    assert defaults["packages_registry_node_version"] == "22.23.2"
+    assert defaults["packages_registry_nodesource_package_version"] == (
+        "22.23.2-1nodesource1"
+    )
+    assert defaults["packages_registry_corepack_version"] == "0.35.0"
     assert defaults["packages_registry_pnpm_version"] == "11.22.0"
-    assert defaults["packages_registry_node_archive_sha256"] == (
-        "2e5d13569282d016861fae7c8f935e741693c269101a5bebcf761a5376d1f99f"
-    )
-    assert "ansible.builtin.import_tasks: web_tooling.yml" in tasks
-    assert tasks.index("Provision pinned package explorer tooling") < tasks.index(
-        "Require pinned Node.js runtime"
-    )
-    assert (
-        "ansible.builtin.import_tasks: ../roles/packages_registry/tasks/web_tooling.yml"
-        in bootstrap
-    )
-    assert "checksum: \"sha256:{{ packages_registry_node_archive_sha256 }}\"" in tooling
-    assert "- enable\n      - pnpm" in tooling
-    assert '"pnpm@{{ packages_registry_pnpm_version }}"' in tooling
-    assert "curl" not in tooling and "| sh" not in tooling
+    assert deploy[0]["roles"][0]["role"] == "packages_registry_runtime"
+    assert bootstrap_play[0]["roles"][0]["role"] == "packages_registry_runtime"
+    assert "Require the existing NodeSource signing key" in runtime
+    assert 'name: "nodejs={{ packages_registry_nodesource_package_version }}"' in runtime
+    assert "argv: [npm, install, --global" in runtime
+    assert "ansible.builtin.command: corepack enable" in runtime
+    assert "ansible.builtin.command: corepack pnpm --version" in runtime
+    assert "argv: [corepack, install, --global" in runtime
+    assert "Require the pinned Node.js release" in runtime
+    assert "Require the pinned Corepack version" in runtime
+    assert "Require the pinned pnpm version" in runtime
+    assert tasks.count("- corepack\n      - pnpm") == 4
+    assert "curl" not in runtime and "| sh" not in runtime
 
 
 def test_nginx_validation_smoke_rollback_and_retention_are_present() -> None:

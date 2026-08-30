@@ -1,0 +1,113 @@
+---
+- name: Manage Node.js and package-manager runtime
+  when: packages_registry_manage_node_runtime
+  block:
+    - name: Check the existing NodeSource signing key
+      ansible.builtin.stat:
+        path: "{{ packages_registry_nodesource_keyring }}"
+      register: packages_registry_nodesource_keyring_stat
+
+    - name: Require the existing NodeSource signing key
+      ansible.builtin.assert:
+        that:
+          - packages_registry_nodesource_keyring_stat.stat.exists
+          - packages_registry_nodesource_keyring_stat.stat.isreg
+        fail_msg: >-
+          The shared host has no NodeSource signing key at
+          {{ packages_registry_nodesource_keyring }}. Install and verify the key before
+          allowing this application-specific playbook to manage the NodeSource repository.
+
+    - name: Configure the NodeSource Node.js repository
+      ansible.builtin.copy:
+        content: >-
+          deb [arch={{ {'x86_64': 'amd64', 'aarch64': 'arm64'}.get(ansible_architecture, ansible_architecture) }} signed-by={{ packages_registry_nodesource_keyring }}]
+          https://deb.nodesource.com/node_{{ packages_registry_node_version.split('.')[0] }}.x nodistro main
+        dest: "{{ packages_registry_nodesource_repository_file }}"
+        owner: root
+        group: root
+        mode: "0644"
+      register: packages_registry_nodesource_repository
+
+    - name: Refresh APT metadata after changing the NodeSource repository
+      ansible.builtin.apt:
+        update_cache: true
+      when: packages_registry_nodesource_repository.changed
+
+    - name: Install the pinned Node.js package
+      ansible.builtin.apt:
+        name: "nodejs={{ packages_registry_nodesource_package_version }}"
+        state: present
+        allow_downgrade: true
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Read installed Corepack version
+      ansible.builtin.command: corepack --version
+      register: packages_registry_installed_corepack
+      changed_when: false
+      failed_when: false
+
+    - name: Install the pinned Corepack release
+      ansible.builtin.command:
+        argv: [npm, install, --global, "corepack@{{ packages_registry_corepack_version }}"]
+      when: >-
+        packages_registry_installed_corepack.stdout | trim !=
+        packages_registry_corepack_version
+
+    - name: Enable Corepack shims
+      ansible.builtin.command: corepack enable
+      changed_when: false
+
+    - name: Read active pnpm version
+      ansible.builtin.command: corepack pnpm --version
+      register: packages_registry_installed_pnpm
+      changed_when: false
+      failed_when: false
+
+    - name: Activate the pinned pnpm release
+      ansible.builtin.command:
+        argv: [corepack, install, --global, "pnpm@{{ packages_registry_pnpm_version }}"]
+      when: >-
+        packages_registry_installed_pnpm.stdout | trim !=
+        packages_registry_pnpm_version
+
+- name: Read Node version
+  ansible.builtin.command: node --version
+  register: packages_registry_node_version_result
+  changed_when: false
+
+- name: Require the pinned Node.js release
+  ansible.builtin.assert:
+    that:
+      - packages_registry_node_version_result.stdout == 'v' ~ packages_registry_node_version
+    fail_msg: >-
+      Node.js {{ packages_registry_node_version }} is required; found
+      {{ packages_registry_node_version_result.stdout }}.
+
+- name: Read final Corepack version
+  ansible.builtin.command: corepack --version
+  register: packages_registry_corepack_version_result
+  changed_when: false
+
+- name: Require the pinned Corepack version
+  ansible.builtin.assert:
+    that: >-
+      packages_registry_corepack_version_result.stdout | trim ==
+      packages_registry_corepack_version
+    fail_msg: >-
+      Corepack {{ packages_registry_corepack_version }} is required; found
+      {{ packages_registry_corepack_version_result.stdout | default('not installed') }}.
+
+- name: Read final pnpm version
+  ansible.builtin.command: corepack pnpm --version
+  register: packages_registry_pnpm_version_result
+  changed_when: false
+
+- name: Require the pinned pnpm version
+  ansible.builtin.assert:
+    that: >-
+      packages_registry_pnpm_version_result.stdout | trim ==
+      packages_registry_pnpm_version
+    fail_msg: >-
+      pnpm {{ packages_registry_pnpm_version }} is required; found
+      {{ packages_registry_pnpm_version_result.stdout | default('not installed') }}.
