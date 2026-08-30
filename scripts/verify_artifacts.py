@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -269,7 +270,7 @@ def run_host_verifier(
 ) -> None:
     """Run only the pinned host's read-only verify CLI and compare bundle identity."""
 
-    python = (host_root / "backend" / ".venv" / "bin" / "python").resolve()
+    python = (host_root / "backend" / ".venv" / "bin" / "python").absolute()
     try:
         result = subprocess.run(
             [
@@ -284,6 +285,7 @@ def run_host_verifier(
             cwd=host_root / "backend",
             check=False,
             capture_output=True,
+            env={**os.environ, "OCP_EXCLUDED_BUILTIN_MODULES": candidate.module_id},
             text=True,
             shell=False,
             timeout=HOST_VERIFIER_TIMEOUT,
@@ -296,8 +298,9 @@ def run_host_verifier(
         detail = result.stderr.strip() or "no verifier details"
         raise ArtifactVerificationError(f"{candidate.identity}: host verifier failed: {detail}")
     try:
-        verified = json.loads(result.stdout)
-    except json.JSONDecodeError as exc:
+        output_lines = result.stdout.splitlines()
+        verified = json.loads(output_lines[-1])
+    except (IndexError, json.JSONDecodeError) as exc:
         raise ArtifactVerificationError(
             f"{candidate.identity}: host verifier returned invalid JSON"
         ) from exc

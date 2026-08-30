@@ -1,4 +1,21 @@
 {
-  "modules": [],
+  "modules": [
+    {
+      "channels": {
+        "stable": {
+          "sha256": "7006f31ea73f40e38f63d2065652c27ad5d3391ddcc8cfad2f149993efef3dcf",
+          "version": "1.0.0"
+        }
+      },
+      "classification": "first-party",
+      "id": "analysis-areas",
+      "metadata": "/modules/analysis-areas.json",
+      "name": "Analysis Areas",
+      "publisher": {
+        "id": "oklabflensburg",
+        "name": "OK Lab Flensburg"
+      }
+    }
+  ],
   "schema_version": 1
 }

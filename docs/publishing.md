@@ -34,11 +34,13 @@ Before proposing a release, contributors should verify the local artifact using 
 uv run python -m app.cli.modules verify /path/to/energy-analysis-1.4.0.ocp
 ```
 
-The single source of truth for `OCP_HOST_VERIFIER_REF` and its repository is [`.github/ocp-host-verifier.json`](../.github/ocp-host-verifier.json). The current reviewed pin is `b8c4db7f3246d21c53a1b5633915be16bb84a633`; workflows, scripts, and tests read the config rather than carrying independent pins. CI checks out that exact commit under `_host-verifier/`, installs `backend/uv.lock` with `uv sync --frozen --extra dev --no-editable` and the frontend lockfile with `pnpm install --frozen-lockfile`, then invokes:
+The single source of truth for `OCP_HOST_VERIFIER_REF` and its repository is [`.github/ocp-host-verifier.json`](../.github/ocp-host-verifier.json). The current reviewed pin is `81844b666aca8356f9c5cb9a86f00cf15b784f79`; workflows, scripts, and tests read the config rather than carrying independent pins. CI checks out that exact commit under `_host-verifier/`, installs `backend/uv.lock` with `uv sync --frozen --extra dev --no-editable` and the frontend lockfile with `pnpm install --frozen-lockfile`, then invokes:
 
 ```text
 _host-verifier/backend/.venv/bin/python -m app.cli.modules --root <temporary-state> verify <temporary-artifact.ocp>
 ```
+
+The verifier subprocess sets `OCP_EXCLUDED_BUILTIN_MODULES` to the candidate module ID so a reviewed built-in-to-external cutover is checked through the host's explicit external-ownership path. This does not install or enable the candidate.
 
 The subprocess uses an argv list with `shell=False` and a 10-minute timeout. After the host returns JSON, CI compares `module_id` and `version` with Registry metadata. `verify` must not create `modules.lock`; no install, enable, or disable command is executed.
 

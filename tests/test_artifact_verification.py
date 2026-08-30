@@ -323,15 +323,20 @@ def test_host_verifier_uses_argv_shell_false(
         return subprocess.CompletedProcess(
             argv,
             0,
-            stdout=json.dumps({"module_id": "energy-analysis", "version": "1.4.0"}),
+            stdout=(
+                "Frontend module preflight passed.\n"
+                + json.dumps({"module_id": "energy-analysis", "version": "1.4.0"})
+                + "\n"
+            ),
             stderr="",
         )
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     run_host_verifier(candidate(), artifact, host_root, tmp_path / "state")
     assert observed["kwargs"]["shell"] is False
+    assert observed["kwargs"]["env"]["OCP_EXCLUDED_BUILTIN_MODULES"] == "energy-analysis"
     assert observed["argv"][-2:] == ["verify", str(artifact)]
-    assert observed["argv"][0] == str(python.resolve())
+    assert observed["argv"][0] == str(python.absolute())
 
 
 def test_metadata_cannot_inject_host_verifier_shell(
