@@ -1,11 +1,29 @@
 [project]
 name = "open-city-planner-packages"
 version = "0.1.0"
-description = "Static registry tooling for Open City Planner modules"
+description = "Static package registry, metadata validation and publishing tooling for Open City Planner modules"
 requires-python = ">=3.12"
+keywords = [
+  "open-city-planner",
+  "gis",
+  "webgis",
+  "geospatial",
+  "civic-tech",
+  "open-data",
+  "openstreetmap",
+  "module-registry",
+  "package-registry",
+  "json-schema",
+]
 dependencies = [
   "jsonschema==4.25.1",
 ]
+
+[project.urls]
+Homepage = "https://packages.stadtplaner.oklabflensburg.de/"
+Repository = "https://github.com/oklabflensburg/open-city-planner-packages"
+"Open City Planner" = "https://github.com/oklabflensburg/open-city-planner"
+"Live application" = "https://stadtplaner.oklabflensburg.de/"
 
 [dependency-groups]
 dev = [
