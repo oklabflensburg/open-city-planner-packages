@@ -4,6 +4,24 @@
   become: true
   serial: 1
   any_errors_fatal: true
+  pre_tasks:
+    - name: Inspect existing package registry checkout
+      ansible.builtin.stat:
+        path: /opt/open-city-planner-packages/repo/.git
+      register: packages_registry_existing_git
+
+    - name: Normalize existing package registry origin to public GitHub URL
+      ansible.builtin.command:
+        argv:
+          - git
+          - remote
+          - set-url
+          - origin
+          - https://github.com/oklabflensburg/open-city-planner-packages.git
+        chdir: /opt/open-city-planner-packages/repo
+      become_user: ocp-packages
+      changed_when: true
+      when: packages_registry_existing_git.stat.isdir | default(false)
   roles:
     - role: packages_registry_runtime
     - role: packages_registry
