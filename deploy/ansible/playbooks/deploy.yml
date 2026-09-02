@@ -9,63 +9,19 @@
     GIT_CONFIG_GLOBAL: /dev/null
     GIT_TERMINAL_PROMPT: "0"
   pre_tasks:
-    - name: Resolve reviewed controller commit
-      ansible.builtin.command:
-        argv:
-          - git
-          - rev-parse
-          - HEAD
-        chdir: "{{ playbook_dir }}/../../.."
-      delegate_to: localhost
-      become: false
-      register: packages_registry_controller_revision
-      changed_when: false
-
-    - name: Require controller checkout to match requested deploy ref
-      ansible.builtin.assert:
-        that:
-          - packages_registry_controller_revision.stdout | trim == packages_registry_deploy_ref
-        fail_msg: The controller checkout does not match the requested immutable deploy ref.
-
-    - name: Build reviewed commit bundle on controller
-      ansible.builtin.command:
-        argv:
-          - git
-          - bundle
-          - create
-          - "/tmp/open-city-planner-packages-{{ packages_registry_deploy_ref }}.bundle"
-          - HEAD
-        chdir: "{{ playbook_dir }}/../../.."
-      delegate_to: localhost
-      become: false
-      changed_when: true
-
-    - name: Transfer reviewed commit bundle to production host
-      ansible.builtin.copy:
-        src: "/tmp/open-city-planner-packages-{{ packages_registry_deploy_ref }}.bundle"
-        dest: "/tmp/open-city-planner-packages-{{ packages_registry_deploy_ref }}.bundle"
-        owner: root
-        group: root
-        mode: "0644"
-
-    - name: Use transferred bundle as immutable repository source
-      ansible.builtin.set_fact:
-        packages_registry_repo_url: >-
-          file:///tmp/open-city-planner-packages-{{ packages_registry_deploy_ref }}.bundle
-
     - name: Inspect existing package registry checkout
       ansible.builtin.stat:
         path: /opt/open-city-planner-packages/repo/.git
       register: packages_registry_existing_git
 
-    - name: Normalize existing package registry origin to configured source
+    - name: Normalize existing package registry origin to public GitHub URL
       ansible.builtin.command:
         argv:
           - git
           - remote
           - set-url
           - origin
-          - "{{ packages_registry_repo_url }}"
+          - https://github.com/oklabflensburg/open-city-planner-packages.git
         chdir: /opt/open-city-planner-packages/repo
       become_user: ocp-packages
       changed_when: true
@@ -91,19 +47,19 @@
       failed_when: packages_registry_local_git_auth_cleanup.rc not in [0, 5]
       when: packages_registry_existing_git.stat.isdir | default(false)
 
+    - name: Force GitHub Smart HTTP over HTTP/1.1
+      ansible.builtin.command:
+        argv:
+          - git
+          - config
+          - --local
+          - http.version
+          - HTTP/1.1
+        chdir: /opt/open-city-planner-packages/repo
+      become_user: ocp-packages
+      changed_when: true
+      when: packages_registry_existing_git.stat.isdir | default(false)
+
   roles:
     - role: packages_registry_runtime
     - role: packages_registry
-
-  post_tasks:
-    - name: Remove transferred production bundle
-      ansible.builtin.file:
-        path: "/tmp/open-city-planner-packages-{{ packages_registry_deploy_ref }}.bundle"
-        state: absent
-
-    - name: Remove controller bundle
-      ansible.builtin.file:
-        path: "/tmp/open-city-planner-packages-{{ packages_registry_deploy_ref }}.bundle"
-        state: absent
-      delegate_to: localhost
-      become: false
