@@ -47,6 +47,19 @@
       failed_when: packages_registry_local_git_auth_cleanup.rc not in [0, 5]
       when: packages_registry_existing_git.stat.isdir | default(false)
 
+    - name: Force GitHub Smart HTTP over HTTP/1.1
+      ansible.builtin.command:
+        argv:
+          - git
+          - config
+          - --local
+          - http.version
+          - HTTP/1.1
+        chdir: /opt/open-city-planner-packages/repo
+      become_user: ocp-packages
+      changed_when: true
+      when: packages_registry_existing_git.stat.isdir | default(false)
+
   roles:
     - role: packages_registry_runtime
     - role: packages_registry
