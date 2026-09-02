@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -46,6 +47,7 @@ DEFAULT_TIMEOUT = 30.0
 DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 USER_AGENT = "OpenCityPlannerRegistryArtifactVerifier/1"
 GITHUB_RELEASE_REDIRECT_HOSTS = frozenset({"release-assets.githubusercontent.com"})
+MODULE_ID_PATTERN = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 
 
 class ArtifactVerificationError(RuntimeError):
@@ -265,12 +267,25 @@ def validate_host_verifier_checkout(host_root: Path) -> None:
         raise ArtifactVerificationError("pinned host verifier environment is not installed")
 
 
+def host_has_builtin_module(host_root: Path, module_id: str) -> bool:
+    """Return whether the pinned Host contains the candidate as a built-in module."""
+
+    if MODULE_ID_PATTERN.fullmatch(module_id) is None:
+        return False
+    module_path = module_id.replace("-", "_")
+    return (host_root / "backend" / "app" / "modules" / module_path / "module.py").is_file()
+
+
 def run_host_verifier(
     candidate: ReleaseCandidate, artifact_path: Path, host_root: Path, state_root: Path
 ) -> None:
     """Run only the pinned host's read-only verify CLI and compare bundle identity."""
 
     python = (host_root / "backend" / ".venv" / "bin" / "python").absolute()
+    environment = {**os.environ}
+    environment.pop("OCP_EXCLUDED_BUILTIN_MODULES", None)
+    if host_has_builtin_module(host_root, candidate.module_id):
+        environment["OCP_EXCLUDED_BUILTIN_MODULES"] = candidate.module_id
     try:
         result = subprocess.run(
             [
@@ -285,7 +300,7 @@ def run_host_verifier(
             cwd=host_root / "backend",
             check=False,
             capture_output=True,
-            env={**os.environ, "OCP_EXCLUDED_BUILTIN_MODULES": candidate.module_id},
+            env=environment,
             text=True,
             shell=False,
             timeout=HOST_VERIFIER_TIMEOUT,

@@ -1,0 +1,31 @@
+{
+  "classification": "first-party",
+  "description": "Bootstrap package for the future modular Open City Planner search system; production search functionality is not yet included.",
+  "id": "search",
+  "license": "AGPL-3.0-only",
+  "name": "Search",
+  "publisher": {
+    "id": "oklabflensburg",
+    "name": "OK Lab Flensburg"
+  },
+  "schema_version": 1,
+  "source_repository": "https://github.com/oklabflensburg/ocp-module-search",
+  "versions": [
+    {
+      "artifact": {
+        "sha256": "2eab4cba2370a87b4d9a569db44c51992ef436ed6824d07abcb4d085c7a220e4",
+        "url": "https://github.com/oklabflensburg/ocp-module-search/releases/download/v0.1.0/search-0.1.0.ocp"
+      },
+      "bundle_format_version": 1,
+      "channel": "beta",
+      "requires": {
+        "host": ">=0.2.0,<1.0.0",
+        "modules": {},
+        "sdk": ">=1.14.0,<2.0.0"
+      },
+      "source_commit": "db174eea0b03e2426720ad0ba20a7187dbd790b7",
+      "source_tag": "v0.1.0",
+      "version": "0.1.0"
+    }
+  ]
+}

@@ -22,6 +22,7 @@ from scripts.verify_artifacts import (
     ReleaseCandidate,
     download_artifact,
     find_new_releases,
+    host_has_builtin_module,
     load_host_verifier_contract,
     run_host_verifier,
     validate_redirect_target,
@@ -306,13 +307,34 @@ def test_empty_candidate_set_passes_without_checkout(tmp_path: Path) -> None:
     )
 
 
-def test_host_verifier_uses_argv_shell_false(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    host_root = tmp_path / "host"
+def _prepare_host_python(host_root: Path) -> Path:
     python = host_root / "backend" / ".venv" / "bin" / "python"
     python.parent.mkdir(parents=True)
     python.touch()
+    return python
+
+
+def test_builtin_detection_requires_real_module_file(tmp_path: Path) -> None:
+    assert not host_has_builtin_module(tmp_path, "energy-analysis")
+    module_file = (
+        tmp_path / "backend" / "app" / "modules" / "energy_analysis" / "module.py"
+    )
+    module_file.parent.mkdir(parents=True)
+    module_file.touch()
+    assert host_has_builtin_module(tmp_path, "energy-analysis")
+    assert not host_has_builtin_module(tmp_path, "../escape")
+
+
+def test_host_verifier_excludes_existing_builtin_only(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    host_root = tmp_path / "host"
+    python = _prepare_host_python(host_root)
+    module_file = (
+        host_root / "backend" / "app" / "modules" / "energy_analysis" / "module.py"
+    )
+    module_file.parent.mkdir(parents=True)
+    module_file.touch()
     artifact = tmp_path / "safe artifact.ocp"
     artifact.touch()
     observed = {}
@@ -339,19 +361,42 @@ def test_host_verifier_uses_argv_shell_false(
     assert observed["argv"][0] == str(python.absolute())
 
 
+def test_host_verifier_does_not_exclude_external_only_module(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    host_root = tmp_path / "host"
+    _prepare_host_python(host_root)
+    artifact = tmp_path / "search.ocp"
+    artifact.touch()
+    external = replace(candidate(), module_id="search")
+    observed = {}
+
+    def fake_run(argv, **kwargs):
+        observed["env"] = kwargs["env"]
+        return subprocess.CompletedProcess(
+            argv,
+            0,
+            stdout=json.dumps({"module_id": "search", "version": external.version}),
+            stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    run_host_verifier(external, artifact, host_root, tmp_path / "state")
+    assert "OCP_EXCLUDED_BUILTIN_MODULES" not in observed["env"]
+
+
 def test_metadata_cannot_inject_host_verifier_shell(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     host_root = tmp_path / "host"
-    python = host_root / "backend" / ".venv" / "bin" / "python"
-    python.parent.mkdir(parents=True)
-    python.touch()
+    _prepare_host_python(host_root)
     malicious = replace(candidate(), module_id="$(touch injected); rm -rf /")
     observed = {}
 
     def fake_run(argv, **kwargs):
         observed["argv"] = argv
         observed["shell"] = kwargs["shell"]
+        observed["env"] = kwargs["env"]
         return subprocess.CompletedProcess(
             argv,
             0,
@@ -363,15 +408,14 @@ def test_metadata_cannot_inject_host_verifier_shell(
     run_host_verifier(malicious, tmp_path / "artifact.ocp", host_root, tmp_path / "state")
     assert observed["shell"] is False
     assert malicious.module_id not in observed["argv"]
+    assert "OCP_EXCLUDED_BUILTIN_MODULES" not in observed["env"]
 
 
 def test_registry_identity_must_match_verified_bundle(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     host_root = tmp_path / "host"
-    python = host_root / "backend" / ".venv" / "bin" / "python"
-    python.parent.mkdir(parents=True)
-    python.touch()
+    _prepare_host_python(host_root)
     monkeypatch.setattr(
         subprocess,
         "run",

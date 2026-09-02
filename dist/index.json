@@ -15,6 +15,38 @@
         "id": "oklabflensburg",
         "name": "OK Lab Flensburg"
       }
+    },
+    {
+      "channels": {
+        "beta": {
+          "sha256": "2eab4cba2370a87b4d9a569db44c51992ef436ed6824d07abcb4d085c7a220e4",
+          "version": "0.1.0"
+        }
+      },
+      "classification": "first-party",
+      "id": "search",
+      "metadata": "/modules/search.json",
+      "name": "Search",
+      "publisher": {
+        "id": "oklabflensburg",
+        "name": "OK Lab Flensburg"
+      }
+    },
+    {
+      "channels": {
+        "stable": {
+          "sha256": "cbefa3309642f4b06e8600c56552143d6b53d76472ddc574d889a67d3147e193",
+          "version": "0.2.0"
+        }
+      },
+      "classification": "first-party",
+      "id": "statistics",
+      "metadata": "/modules/statistics.json",
+      "name": "Statistics",
+      "publisher": {
+        "id": "oklabflensburg",
+        "name": "OK Lab Flensburg"
+      }
     }
   ],
   "schema_version": 1
