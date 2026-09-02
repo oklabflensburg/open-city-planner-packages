@@ -4,6 +4,10 @@
   become: true
   serial: 1
   any_errors_fatal: true
+  environment:
+    GIT_CONFIG_NOSYSTEM: "1"
+    GIT_CONFIG_GLOBAL: /dev/null
+    GIT_TERMINAL_PROMPT: "0"
   pre_tasks:
     - name: Inspect existing package registry checkout
       ansible.builtin.stat:
