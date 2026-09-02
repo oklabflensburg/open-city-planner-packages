@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "id": "statistics",
+  "name": "Statistics",
+  "description": "Municipal statistics query service for Open City Planner modules.",
+  "publisher": {
+    "id": "oklabflensburg",
+    "name": "OK Lab Flensburg"
+  },
+  "classification": "first-party",
+  "source_repository": "https://github.com/oklabflensburg/ocp-module-statistics",
+  "license": "AGPL-3.0-only",
+  "versions": [
+    {
+      "version": "0.2.0",
+      "channel": "stable",
+      "artifact": {
+        "url": "https://github.com/oklabflensburg/ocp-module-statistics/releases/download/v0.2.0/statistics-0.2.0.ocp",
+        "sha256": "cbefa3309642f4b06e8600c56552143d6b53d76472ddc574d889a67d3147e193"
+      },
+      "bundle_format_version": 1,
+      "source_commit": "4525491995cddb7ad9670f456bba1a49e289f583",
+      "source_tag": "v0.2.0",
+      "requires": {
+        "host": ">=0.2.0,<1.0.0",
+        "sdk": ">=1.15.0,<2.0.0",
+        "modules": {}
+      }
+    }
+  ]
+}
