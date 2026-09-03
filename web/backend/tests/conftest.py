@@ -16,6 +16,7 @@ def registry_root(tmp_path: Path) -> Path:
     source = json.loads(
         (Path(__file__).parents[3] / "registry/modules/analysis-areas.json").read_text()
     )
+    source["versions"] = source["versions"][:1]
     modules = tmp_path / "registry/modules"
     modules.mkdir(parents=True)
     (tmp_path / "registry/registry.json").write_text('{"schema_version": 1}\n')
