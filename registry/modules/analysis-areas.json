@@ -44,6 +44,24 @@
           "statistics": ">=0.2.0,<1.0.0"
         }
       }
+    },
+    {
+      "version": "1.5.3",
+      "channel": "stable",
+      "artifact": {
+        "url": "https://github.com/oklabflensburg/ocp-module-analysis-areas/releases/download/v1.5.3/analysis-areas-1.5.3.ocp",
+        "sha256": "88ead403d89209c155b78101676b691a642139991cf9fd0787115ccfe0338f6b"
+      },
+      "bundle_format_version": 1,
+      "source_commit": "06a675a4237fca397b37c0aeb935ecd60557073a",
+      "source_tag": "v1.5.3",
+      "requires": {
+        "host": ">=0.2.0,<1.0.0",
+        "sdk": ">=1.15.0,<2.0.0",
+        "modules": {
+          "statistics": ">=0.2.0,<1.0.0"
+        }
+      }
     }
   ]
 }
