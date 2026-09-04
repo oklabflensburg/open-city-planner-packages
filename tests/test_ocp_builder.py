@@ -245,6 +245,75 @@ def test_candidate_storage_is_idempotent_and_immutable(tmp_path: Path) -> None:
         store_candidate(source, tmp_path / "candidates")
 
 
+def init_candidate_repository(root: Path) -> None:
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=root, check=True)
+    (root / "README").write_text("base\n")
+    subprocess.run(["git", "add", "README"], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "base"], cwd=root, check=True)
+
+
+def test_new_untracked_candidate_is_detected_after_staging(tmp_path: Path) -> None:
+    init_candidate_repository(tmp_path)
+    source = tmp_path / "provenance.json"
+    source.write_text(json.dumps(candidate()))
+    store_candidate(source, tmp_path / "candidates")
+    assert subprocess.run(
+        ["git", "diff", "--quiet", "--", "candidates"], cwd=tmp_path, check=False
+    ).returncode == 0
+    subprocess.run(["git", "add", "candidates"], cwd=tmp_path, check=True)
+    assert subprocess.run(
+        ["git", "diff", "--cached", "--quiet", "--", "candidates"],
+        cwd=tmp_path,
+        check=False,
+    ).returncode == 1
+
+
+def test_existing_identical_candidate_needs_no_commit(tmp_path: Path) -> None:
+    init_candidate_repository(tmp_path)
+    source = tmp_path / "provenance.json"
+    source.write_text(json.dumps(candidate()))
+    store_candidate(source, tmp_path / "candidates")
+    subprocess.run(["git", "add", "candidates"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-qm", "candidate"], cwd=tmp_path, check=True)
+    _, created = store_candidate(source, tmp_path / "candidates")
+    subprocess.run(["git", "add", "candidates"], cwd=tmp_path, check=True)
+    assert not created
+    assert subprocess.run(
+        ["git", "diff", "--cached", "--quiet"], cwd=tmp_path, check=False
+    ).returncode == 0
+
+
+def test_existing_automation_branch_can_commit_new_candidate(tmp_path: Path) -> None:
+    init_candidate_repository(tmp_path)
+    subprocess.run(
+        ["git", "switch", "-qc", "automation/statistics-v0.4.0"], cwd=tmp_path, check=True
+    )
+    source = tmp_path / "provenance.json"
+    source.write_text(json.dumps(candidate()))
+    store_candidate(source, tmp_path / "candidates")
+    subprocess.run(["git", "add", "candidates"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-qm", "candidate"], cwd=tmp_path, check=True)
+    assert subprocess.run(
+        ["git", "diff", "--quiet", "main...HEAD", "--", "candidates"],
+        cwd=tmp_path,
+        check=False,
+    ).returncode == 1
+
+
+def test_automation_branch_without_candidate_diff_is_clean_noop(tmp_path: Path) -> None:
+    init_candidate_repository(tmp_path)
+    subprocess.run(
+        ["git", "switch", "-qc", "automation/statistics-v0.4.0"], cwd=tmp_path, check=True
+    )
+    assert subprocess.run(
+        ["git", "diff", "--quiet", "main...HEAD", "--", "candidates"],
+        cwd=tmp_path,
+        check=False,
+    ).returncode == 0
+
+
 def test_reproducibility_mismatch_fails_before_host_contract(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
