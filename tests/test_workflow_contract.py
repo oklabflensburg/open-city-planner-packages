@@ -58,6 +58,18 @@ def test_builder_actions_are_pinned_and_no_auto_merge_exists() -> None:
     assert "gh pr merge" not in source
 
 
+def test_candidate_is_staged_before_cached_diff_and_pr_requires_branch_diff() -> None:
+    source = BUILDER_WORKFLOW_PATH.read_text(encoding="utf-8")
+    stage = source.index("git add candidates")
+    cached_diff = source.index("git diff --cached --quiet -- candidates")
+    branch_diff = source.index('git diff --quiet "origin/main...origin/${branch}" -- candidates')
+    create_pr = source.index("gh pr create")
+    assert stage < cached_diff < branch_diff < create_pr
+    assert "git diff --quiet -- candidates" not in source
+    assert 'if [[ "${candidate_changed}" != true ]]' in source
+    assert 'if [[ "${open_prs}" == 0 ]]' in source
+
+
 def test_registry_triggers_remain_pr_and_main_push_only() -> None:
     triggers = workflow()["on"]
     assert set(triggers) == {"pull_request", "push"}
