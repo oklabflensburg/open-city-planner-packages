@@ -26,6 +26,22 @@
       "source_commit": "4525491995cddb7ad9670f456bba1a49e289f583",
       "source_tag": "v0.2.0",
       "version": "0.2.0"
+    },
+    {
+      "artifact": {
+        "sha256": "0f013f956e9b31e15e08be760a82b58cc9c4376fa080ce3664355d0a82fea688",
+        "url": "https://github.com/oklabflensburg/ocp-module-statistics/releases/download/v0.3.0/statistics-0.3.0.ocp"
+      },
+      "bundle_format_version": 1,
+      "channel": "stable",
+      "requires": {
+        "host": ">=0.2.0,<1.0.0",
+        "modules": {},
+        "sdk": ">=1.15.0,<2.0.0"
+      },
+      "source_commit": "c9484c87be249baef19244277fb83b83c3cac068",
+      "source_tag": "v0.3.0",
+      "version": "0.3.0"
     }
   ]
 }
