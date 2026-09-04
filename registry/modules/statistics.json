@@ -26,6 +26,22 @@
         "sdk": ">=1.15.0,<2.0.0",
         "modules": {}
       }
+    },
+    {
+      "version": "0.3.0",
+      "channel": "stable",
+      "artifact": {
+        "url": "https://github.com/oklabflensburg/ocp-module-statistics/releases/download/v0.3.0/statistics-0.3.0.ocp",
+        "sha256": "0f013f956e9b31e15e08be760a82b58cc9c4376fa080ce3664355d0a82fea688"
+      },
+      "bundle_format_version": 1,
+      "source_commit": "c9484c87be249baef19244277fb83b83c3cac068",
+      "source_tag": "v0.3.0",
+      "requires": {
+        "host": ">=0.2.0,<1.0.0",
+        "sdk": ">=1.15.0,<2.0.0",
+        "modules": {}
+      }
     }
   ]
 }

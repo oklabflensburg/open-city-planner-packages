@@ -35,8 +35,8 @@
     {
       "channels": {
         "stable": {
-          "sha256": "cbefa3309642f4b06e8600c56552143d6b53d76472ddc574d889a67d3147e193",
-          "version": "0.2.0"
+          "sha256": "0f013f956e9b31e15e08be760a82b58cc9c4376fa080ce3664355d0a82fea688",
+          "version": "0.3.0"
         }
       },
       "classification": "first-party",
