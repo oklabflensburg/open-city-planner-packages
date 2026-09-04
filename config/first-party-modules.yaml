@@ -1,0 +1,25 @@
+builder_version: 1
+modules:
+  statistics:
+    repository: oklabflensburg/ocp-module-statistics
+    classification: first-party
+    publisher: oklabflensburg
+    license: AGPL-3.0-only
+    host_contract:
+      services:
+        - id: statistics.query
+          version: 1
+          contract: app.platform.modules.sdk:StatisticsQueryPort
+  analysis-areas:
+    repository: oklabflensburg/ocp-module-analysis-areas
+    classification: first-party
+    publisher: oklabflensburg
+    license: AGPL-3.0-only
+    host_contract:
+      services:
+        - id: analysis-areas.lookup
+          version: 1
+          contract: ocp_module_analysis_areas.contracts:AnalysisAreaQueryService
+        - id: analysis-areas.wikidata-maintenance
+          version: 1
+          contract: ocp_module_analysis_areas.contracts:WikidataMaintenanceService

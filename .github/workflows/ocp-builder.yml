@@ -1,0 +1,176 @@
+name: Central OCP Builder
+
+on:
+  workflow_dispatch:
+    inputs:
+      module_id:
+        description: Allowlisted first-party module ID
+        required: true
+        type: choice
+        options:
+          - statistics
+          - analysis-areas
+      source_tag:
+        description: Immutable v-prefixed SemVer source tag
+        required: true
+        type: string
+      planned_channel:
+        description: Review proposal; stable is never selected implicitly
+        required: true
+        default: beta
+        type: choice
+        options:
+          - beta
+          - stable
+          - nightly
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ocp-builder-${{ inputs.module_id }}-${{ inputs.source_tag }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Check out Builder of Record
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12.14"
+
+      - name: Set up pinned Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.22.3"
+
+      - name: Set up pinned pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.22.0
+          run_install: false
+
+      - name: Install pinned uv and locked Builder dependencies
+        run: |
+          python -m pip install "uv==0.12.5"
+          uv sync --frozen
+
+      - name: Read pinned Host verifier contract
+        id: host
+        run: |
+          uv run python - <<'PY' >> "${GITHUB_OUTPUT}"
+          from scripts.verify_artifacts import load_host_verifier_contract
+          contract = load_host_verifier_contract()
+          print(f"repository={contract['OCP_HOST_VERIFIER_REPOSITORY']}")
+          print(f"ref={contract['OCP_HOST_VERIFIER_REF']}")
+          PY
+
+      - name: Check out exact Host verifier commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.host.outputs.repository }}
+          ref: ${{ steps.host.outputs.ref }}
+          path: _host-verifier
+          persist-credentials: false
+
+      - name: Install locked Host verifier
+        working-directory: _host-verifier/backend
+        run: uv sync --frozen --extra dev --no-editable
+
+      - name: Build twice and enforce all candidate gates
+        env:
+          OCP_MODULE_ID: ${{ inputs.module_id }}
+          OCP_SOURCE_TAG: ${{ inputs.source_tag }}
+          OCP_PLANNED_CHANNEL: ${{ inputs.planned_channel }}
+        run: >-
+          uv run python -m scripts.ocp_builder
+          --module "${OCP_MODULE_ID}"
+          --tag "${OCP_SOURCE_TAG}"
+          --channel "${OCP_PLANNED_CHANNEL}"
+          --host-root _host-verifier
+          --output build/ocp-builder
+
+      - name: Upload immutable candidate for human review
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ inputs.module_id }}-${{ inputs.source_tag }}
+          path: build/ocp-builder/candidate/
+          if-no-files-found: error
+          retention-days: 30
+
+  prepare-review:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Check out Registry source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12.14"
+
+      - name: Install pinned uv and locked validation dependencies
+        run: |
+          python -m pip install "uv==0.12.5"
+          uv sync --frozen
+
+      - name: Download gated candidate metadata
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ inputs.module_id }}-${{ inputs.source_tag }}
+          path: _candidate
+
+      - name: Validate candidate and prepare review metadata
+        id: candidate
+        run: |
+          uv run python -m scripts.registry_candidate \
+            _candidate/provenance.json --output _candidate/validated
+          uv run python -m scripts.candidate_pr_body \
+            _candidate/provenance.json --output _candidate/pr-body.md \
+            >> "${GITHUB_OUTPUT}"
+
+      - name: Create or update review branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODULE_ID: ${{ steps.candidate.outputs.module_id }}
+          VERSION: ${{ steps.candidate.outputs.version }}
+        run: |
+          branch="automation/${MODULE_ID}-v${VERSION}"
+          if git ls-remote --exit-code --heads origin "${branch}" >/dev/null 2>&1; then
+            git fetch origin "${branch}"
+            git checkout -B "${branch}" FETCH_HEAD
+          else
+            git checkout -b "${branch}"
+          fi
+          uv run python -m scripts.registry_candidate \
+            _candidate/provenance.json --output candidates
+          if ! git diff --quiet -- candidates; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add candidates
+            git commit -m "chore(registry): prepare ${MODULE_ID} v${VERSION}"
+            git push origin "${branch}"
+          fi
+          if ! gh pr list --head "${branch}" --state open --json number --jq 'length' | grep -qx 1; then
+            gh pr create \
+              --base main \
+              --head "${branch}" \
+              --title "chore(registry): publish ${MODULE_ID} v${VERSION}" \
+              --body-file _candidate/pr-body.md
+          fi

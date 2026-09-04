@@ -7,6 +7,7 @@ import yaml
 
 ROOT = Path(__file__).parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/registry.yml"
+BUILDER_WORKFLOW_PATH = ROOT / ".github/workflows/ocp-builder.yml"
 
 
 def workflow_source() -> str:
@@ -15,6 +16,46 @@ def workflow_source() -> str:
 
 def workflow() -> dict:
     return yaml.load(workflow_source(), Loader=yaml.BaseLoader)
+
+
+def builder_workflow() -> dict:
+    return yaml.load(
+        BUILDER_WORKFLOW_PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader
+    )
+
+
+def test_central_builder_is_manual_allowlisted_and_has_no_commit_override() -> None:
+    value = builder_workflow()
+    assert set(value["on"]) == {"workflow_dispatch"}
+    inputs = value["on"]["workflow_dispatch"]["inputs"]
+    assert set(inputs) == {"module_id", "source_tag", "planned_channel"}
+    assert inputs["module_id"]["options"] == ["statistics", "analysis-areas"]
+    assert inputs["planned_channel"]["default"] == "beta"
+    source = BUILDER_WORKFLOW_PATH.read_text(encoding="utf-8")
+    assert "source_commit:" not in source
+    assert "artifact_url:" not in source
+    assert "auto-merge" not in source
+
+
+def test_untrusted_builder_job_has_read_only_permissions_and_no_secrets() -> None:
+    value = builder_workflow()
+    build = value["jobs"]["build"]
+    assert value["permissions"] == {"contents": "read"}
+    assert build["permissions"] == {"contents": "read"}
+    build_source = yaml.safe_dump(build)
+    assert "secrets." not in build_source
+    assert value["jobs"]["prepare-review"]["permissions"] == {
+        "contents": "write",
+        "pull-requests": "write",
+    }
+
+
+def test_builder_actions_are_pinned_and_no_auto_merge_exists() -> None:
+    source = BUILDER_WORKFLOW_PATH.read_text(encoding="utf-8")
+    uses = re.findall(r"^\s*uses:\s*([^\s#]+)", source, flags=re.MULTILINE)
+    assert uses
+    assert all(re.fullmatch(r"[^@]+@[0-9a-f]{40}", action) for action in uses)
+    assert "gh pr merge" not in source
 
 
 def test_registry_triggers_remain_pr_and_main_push_only() -> None:

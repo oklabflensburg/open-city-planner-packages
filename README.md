@@ -49,7 +49,8 @@ That separation keeps installed modules independent from registry availability a
 | --- | --- |
 | [`open-city-planner`](https://github.com/oklabflensburg/open-city-planner) | Web GIS host, runtime, SDK, `.ocp` v1 bundle reader, verification, installation and authoritative `modules.lock` state |
 | **`open-city-planner-packages`** | Registry source, read-only search API, public package explorer, metadata schema, static index, validation, review policy and deployable package discovery output |
-| Module repositories | Module source code, tests and immutable `.ocp` v1 releases |
+| Module repositories | Module source code, tests and immutable source tags |
+| **Central OCP builder** | Allowlisted first-party `.ocp` builds, reproducibility, Host contract and candidate provenance |
 
 A typical installation flow is:
 
@@ -129,6 +130,10 @@ uv run python scripts/validate_registry.py --base-ref origin/main
 ```
 
 Registry pull requests use separate checks for metadata and schema policy, published-release immutability, artifact SHA-256 verification, the pinned Open City Planner `.ocp` verifier and deterministic static output.
+
+First-party source tags can additionally enter the [central Builder of Record](docs/central-builder.md).
+Its manual workflow performs two independent builds, a pinned Host lifecycle check, and creates a
+review-only candidate PR. It neither auto-merges nor writes the production Registry.
 
 Artifact verification processes one release at a time with bounded network access and runs only the host's read-only `verify` command—never `install`.
 
