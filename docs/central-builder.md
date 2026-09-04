@@ -40,9 +40,14 @@ lightweight tags with `^{commit}`, checks out that exact commit, and checks all 
 
 The v1 source layout is `module.yaml`, `backend/pyproject.toml`, and optionally
 `frontend/package.json` plus `frontend/module.json`. Backend-only modules are supported.
-Backends use `uv build --wheel`; frontends use a frozen pnpm install, available typecheck/test
-scripts, `pnpm deploy`, and a central deterministic archive implementation. The central core has
-no package-name or release-version special cases.
+Backends use `uv build --wheel`; frontends use a frozen pnpm install and then run each supported
+package script that exists, in order: `typecheck`, `test`, `contract:check`, and `build`. A module
+build script may compile or prepare its source tree, but it never selects or publishes the final
+artifact. `pnpm deploy` and the central deterministic archive implementation remain authoritative
+for frontend artifact assembly. Before that deploy, the builder recreates the frozen dependency
+tree so module build scripts cannot leak a cached or module-owned deploy result into the central
+artifact. The central core has no package-name or release-version special cases, and every
+non-zero package-script exit fails the candidate before publication.
 
 The existing Host bundle writer assembles Bundle Format v1 with the manifest, wheel, optional
 frontend archive, source repository/tag/commit, license, and build workflow. This deliberately

@@ -14,6 +14,7 @@ from scripts.ocp_builder import (
     load_policies,
     orchestrate,
     parse_tag,
+    run_frontend_scripts,
     validate_source,
 )
 from scripts.registry_candidate import store_candidate, validate_candidate
@@ -95,6 +96,74 @@ def test_source_contract_accepts_generic_module(tmp_path: Path) -> None:
     source_identity = identity()
     write_source(tmp_path, source_identity)
     validate_source(tmp_path, source_identity)
+
+
+def test_frontend_build_is_executed_when_present(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    commands: list[list[str]] = []
+    monkeypatch.setattr(
+        "scripts.ocp_builder.run",
+        lambda command, **kwargs: commands.append(command) or "",
+    )
+    run_frontend_scripts(
+        tmp_path,
+        {"scripts": {"build": "node build"}},
+    )
+    assert commands == [["corepack", "pnpm", "run", "build"]]
+
+
+def test_frontend_contract_check_is_executed_when_present(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    commands: list[list[str]] = []
+    monkeypatch.setattr(
+        "scripts.ocp_builder.run",
+        lambda command, **kwargs: commands.append(command) or "",
+    )
+    run_frontend_scripts(tmp_path, {"scripts": {"contract:check": "vitest"}})
+    assert commands == [["corepack", "pnpm", "run", "contract:check"]]
+
+
+def test_frontend_build_is_optional_when_script_is_absent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    commands: list[list[str]] = []
+    monkeypatch.setattr(
+        "scripts.ocp_builder.run",
+        lambda command, **kwargs: commands.append(command) or "",
+    )
+    run_frontend_scripts(tmp_path, {"scripts": {"test": "vitest"}})
+    assert commands == [["corepack", "pnpm", "run", "test"]]
+
+
+def test_frontend_build_failure_aborts_before_candidate_generation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source_identity = identity()
+    monkeypatch.setattr("scripts.ocp_builder.validate_host_verifier_checkout", lambda root: None)
+    monkeypatch.setattr(
+        "scripts.ocp_builder.prepare_checkout",
+        lambda policy, tag, destination: source_identity,
+    )
+
+    def fail_build(command, **kwargs):
+        if command[-1] == "build":
+            raise BuilderError("frontend build failed")
+        return ""
+
+    def fake_build_once(source, output, source_identity, host_root):
+        run_frontend_scripts(source, {"scripts": {"build": "node build"}})
+        raise AssertionError("failed frontend build unexpectedly returned")
+
+    monkeypatch.setattr("scripts.ocp_builder.run", fail_build)
+    monkeypatch.setattr("scripts.ocp_builder.build_once", fake_build_once)
+    monkeypatch.setattr(
+        "scripts.ocp_builder.create_candidate",
+        lambda *args: pytest.fail("candidate generation must not run"),
+    )
+    with pytest.raises(BuilderError, match="frontend build failed"):
+        orchestrate("statistics", "v0.4.0", tmp_path, tmp_path / "host", "1", "beta")
 
 
 def test_backend_only_source_is_supported(tmp_path: Path) -> None:

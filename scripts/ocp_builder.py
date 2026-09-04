@@ -250,7 +250,12 @@ def _copy_dereferenced(source: Path, destination: Path) -> None:
     if source.is_symlink():
         source = source.resolve(strict=True)
     if source.is_dir():
-        shutil.copytree(source, destination, symlinks=False, ignore=shutil.ignore_patterns(".bin"))
+        shutil.copytree(
+            source,
+            destination,
+            symlinks=False,
+            ignore=shutil.ignore_patterns(".bin", ".pnpm"),
+        )
     else:
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
@@ -291,9 +296,12 @@ def build_frontend(source: Path, output: Path, identity: SourceIdentity) -> Path
     frontend = source / "frontend"
     run(["corepack", "pnpm", "install", "--frozen-lockfile"], cwd=frontend, env={"CI": "true"})
     package = json.loads((frontend / "package.json").read_text(encoding="utf-8"))
-    for script in ("typecheck", "test"):
-        if script in package.get("scripts", {}):
-            run(["corepack", "pnpm", script], cwd=frontend, env={"CI": "true"})
+    run_frontend_scripts(frontend, package)
+    # Package build scripts may themselves call pnpm deploy and warm its mutable
+    # workspace state. Recreate the locked dependency tree so central assembly
+    # never consumes or trusts that module-owned deploy result.
+    shutil.rmtree(frontend / "node_modules", ignore_errors=True)
+    run(["corepack", "pnpm", "install", "--frozen-lockfile"], cwd=frontend, env={"CI": "true"})
     artifact = output / "frontend" / f"{identity.policy.module_id}-{identity.version}.tgz"
     artifact.parent.mkdir(parents=True)
     with tempfile.TemporaryDirectory(prefix="ocp-frontend-") as temporary:
@@ -334,10 +342,25 @@ def build_frontend(source: Path, output: Path, identity: SourceIdentity) -> Path
                         target = flat / dependency.name
                         if dependency.is_dir() and not target.exists():
                             _copy_dereferenced(dependency, target)
+        elif (deployed / "node_modules").is_dir():
+            # A preceding package build may warm pnpm's deploy state so that a
+            # later deploy is already flattened and has no private virtual store.
+            _copy_dereferenced(deployed / "node_modules", staging / "node_modules")
         if any(path.is_symlink() for path in staging.rglob("*")):
             raise BuilderError("frontend staging tree contains symbolic links")
         _archive_tree(staging, artifact)
     return artifact
+
+
+def run_frontend_scripts(frontend: Path, package: dict[str, Any]) -> None:
+    """Run supported source-package gates without delegating artifact assembly."""
+
+    scripts = package.get("scripts", {})
+    if not isinstance(scripts, dict):
+        raise BuilderError("frontend package scripts must be an object")
+    for script in ("typecheck", "test", "contract:check", "build"):
+        if script in scripts:
+            run(["corepack", "pnpm", "run", script], cwd=frontend, env={"CI": "true"})
 
 
 def assemble_bundle(
