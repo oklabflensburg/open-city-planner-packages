@@ -160,17 +160,34 @@ jobs:
           fi
           uv run python -m scripts.registry_candidate \
             _candidate/provenance.json --output candidates
-          if ! git diff --quiet -- candidates; then
+          git add candidates
+          candidate_changed=false
+          if ! git diff --cached --quiet -- candidates; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add candidates
             git commit -m "chore(registry): prepare ${MODULE_ID} v${VERSION}"
             git push origin "${branch}"
+            candidate_changed=true
           fi
-          if ! gh pr list --head "${branch}" --state open --json number --jq 'length' | grep -qx 1; then
+          if [[ "${candidate_changed}" != true ]]; then
+            echo "Candidate provenance is unchanged; no commit, push, or PR is needed."
+            exit 0
+          fi
+          git fetch origin
+          if git diff --quiet "origin/main...origin/${branch}" -- candidates; then
+            echo "Automation branch has no candidate diff from main; no PR is needed."
+            exit 0
+          fi
+          open_prs="$(gh pr list --head "${branch}" --state open --json number --jq 'length')"
+          if [[ "${open_prs}" == 0 ]]; then
             gh pr create \
               --base main \
               --head "${branch}" \
               --title "chore(registry): publish ${MODULE_ID} v${VERSION}" \
               --body-file _candidate/pr-body.md
+          elif [[ "${open_prs}" == 1 ]]; then
+            echo "Reusing the existing open review PR for ${branch}."
+          else
+            echo "Multiple open PRs exist for ${branch}; refusing ambiguous update." >&2
+            exit 1
           fi
