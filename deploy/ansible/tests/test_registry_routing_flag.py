@@ -1,7 +1,6 @@
 from pathlib import Path
 
-from jinja2 import Environment, StrictUndefined
-
+import jinja2
 
 TEMPLATE = (
     Path(__file__).resolve().parents[1]
@@ -10,7 +9,7 @@ TEMPLATE = (
 
 
 def render(value):
-    template = Environment(undefined=StrictUndefined).from_string(TEMPLATE.read_text())
+    template = jinja2.Environment(undefined=jinja2.StrictUndefined).from_string(TEMPLATE.read_text())
     return template.render(
         packages_registry_domain="packages.example.test",
         packages_registry_acme_webroot="/var/www/acme",
