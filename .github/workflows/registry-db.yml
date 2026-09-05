@@ -1,0 +1,59 @@
+name: Registry PostgreSQL
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:18.6
+        env:
+          POSTGRES_USER: registry_test
+          POSTGRES_DB: registry_test
+          # Ephemeral CI service only; no production credentials or network.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U registry_test -d registry_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PACKAGES_REGISTRY_DATABASE_URL: postgresql+psycopg://registry_test@127.0.0.1:5432/registry_test
+      PACKAGES_REGISTRY_TEST_DATABASE_URL: postgresql+psycopg://registry_test@127.0.0.1:5432/registry_test
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Install pinned uv
+        run: python -m pip install "uv==0.12.5"
+      - name: Install optional database dependencies
+        run: uv sync --frozen --extra registry-db
+      - name: Verify real PostgreSQL constraints, migrations and import contracts
+        run: uv run --extra registry-db pytest web/backend/db_tests
+      - name: Exercise migration CLI round trip on empty shadow database
+        run: |
+          uv run --extra registry-db alembic -c web/backend/alembic.ini upgrade head
+          uv run --extra registry-db alembic -c web/backend/alembic.ini downgrade base
+          uv run --extra registry-db alembic -c web/backend/alembic.ini upgrade head
+          uv run --extra registry-db alembic -c web/backend/alembic.ini check
+      - name: Exercise shadow import and identical re-import CLI
+        run: |
+          uv run --extra registry-db python -m web.backend.app.registry_import_v1 --registry-root registry --confirm-shadow-import
+          uv run --extra registry-db python -m web.backend.app.registry_import_v1 --registry-root registry --confirm-shadow-import
+      - name: Verify source and generated Registry files remain unchanged
+        run: git diff --exit-code -- registry dist candidates
