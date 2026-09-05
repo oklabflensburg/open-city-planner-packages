@@ -43,9 +43,37 @@ jobs:
         run: python -m pip install "uv==0.12.5"
       - name: Install optional database dependencies
         run: uv sync --frozen --extra registry-db
-      - name: Verify PostgreSQL constraints, migrations, import and Registry v2 API contracts
+      - name: Read pinned Host contract
+        id: host
+        run: |
+          uv run python - <<'PYTHON' >> "${GITHUB_OUTPUT}"
+          from scripts.verify_artifacts import load_host_verifier_contract
+          contract = load_host_verifier_contract()
+          print(f"repository={contract['OCP_HOST_VERIFIER_REPOSITORY']}")
+          print(f"ref={contract['OCP_HOST_VERIFIER_REF']}")
+          PYTHON
+      - name: Check out pinned Host consumer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.host.outputs.repository }}
+          ref: ${{ steps.host.outputs.ref }}
+          path: _host-verifier
+          persist-credentials: false
+      - name: Install locked Host dependencies
+        working-directory: _host-verifier/backend
+        run: uv sync --frozen --extra dev --no-editable
+      - name: Verify PostgreSQL, v1 byte parity, guards, HTTP and real Host contracts
+        env:
+          PACKAGES_REGISTRY_HOST_VERIFIER_ROOT: ${{ github.workspace }}/_host-verifier
         # API fixtures migrate a fresh schema and import v1 before HTTP requests.
         run: uv run --extra registry-db pytest web/backend/db_tests
+      - name: Run unchanged pinned Host Registry and installer suites
+        working-directory: _host-verifier/backend
+        run: uv run --frozen pytest tests/test_module_registry.py tests/test_module_installer.py
+      - name: Install Nginx for isolated routing checks
+        run: sudo apt-get update && sudo apt-get install -y nginx openssl
+      - name: Verify default and opt-in Nginx routing and artifact isolation
+        run: uv run --extra registry-db pytest deploy/ansible/tests
       - name: Exercise migration CLI round trip on empty shadow database
         run: |
           uv run --extra registry-db alembic -c web/backend/alembic.ini upgrade head
@@ -56,5 +84,7 @@ jobs:
         run: |
           uv run --extra registry-db python -m web.backend.app.registry_import_v1 --registry-root registry --confirm-shadow-import
           uv run --extra registry-db python -m web.backend.app.registry_import_v1 --registry-root registry --confirm-shadow-import
+      - name: Verify read-only compatibility parity CLI
+        run: uv run --extra registry-db python -m web.backend.app.registry_verify_v1 --dist dist
       - name: Verify source and generated Registry files remain unchanged
         run: git diff --exit-code -- registry dist candidates

@@ -354,3 +354,34 @@ def test_artifact_route_rejects_symlinks_and_cannot_serve_staging() -> None:
     assert 'autoindex off;' in nginx
     assert '/.staging' not in nginx
     assert 'location ~ /\\.' in nginx
+
+
+def test_v1_database_activation_is_explicit_and_independent():
+    role = Path(__file__).resolve().parents[1] / "roles/packages_registry"
+    defaults = yaml.safe_load((role / "defaults/main.yml").read_text())
+    assert defaults["packages_registry_v1_db_compat_enabled"] is False
+    assert defaults["packages_registry_v1_db_compat_routing_enabled"] is False
+    template = Environment(undefined=StrictUndefined).from_string(
+        (role / "templates/packages-registry.nginx.conf.j2").read_text()
+    )
+    for backend, routing in ((False, False), (True, False), (True, True)):
+        rendered = template.render(
+            {
+                **defaults,
+                "packages_registry_v1_db_compat_enabled": backend,
+                "packages_registry_v1_db_compat_routing_enabled": routing,
+            }
+        )
+        index = rendered.split("location = /index.json {", 1)[1].split("}", 1)[0]
+        assert ("proxy_pass" in index) is routing
+        assert ("try_files" in index) is not routing
+    tasks = (role / "tasks/main.yml").read_text()
+    assert "not (packages_registry_v1_db_compat_routing_enabled | bool)" in tasks
+    service = Environment(undefined=StrictUndefined).from_string(
+        (role / "templates/packages-registry-backend.service.j2").read_text()
+    )
+    assert "EnvironmentFile=" not in service.render(defaults)
+    enabled = service.render({**defaults, "packages_registry_v1_db_compat_enabled": True})
+    assert "PACKAGES_REGISTRY_V1_DB_COMPAT_ENABLED=true" in enabled
+    assert "EnvironmentFile=" in enabled
+    assert "DATABASE_URL=" not in enabled

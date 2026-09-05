@@ -2,6 +2,8 @@
 - name: Require safe package registry deployment settings
   ansible.builtin.assert:
     that:
+      - not (packages_registry_v1_db_compat_routing_enabled | bool) or (packages_registry_v1_db_compat_enabled | bool)
+      - packages_registry_database_environment_file is match('^/[a-zA-Z0-9_./-]+$')
       - packages_registry_release_retention | int >= 2
       - packages_registry_min_release_free_bytes | int > 0
       - packages_registry_service_user != 'root'
@@ -241,10 +243,9 @@
 
 - name: Synchronize release dependencies from frozen lockfile
   ansible.builtin.command:
-    argv:
-      - "{{ packages_registry_uv_venv }}/bin/uv"
-      - sync
-      - --frozen
+    argv: >-
+      {{ [packages_registry_uv_venv ~ '/bin/uv', 'sync', '--frozen'] +
+         (['--extra', 'registry-db'] if packages_registry_v1_db_compat_enabled | bool else []) }}
     chdir: "{{ packages_registry_release_path }}"
   environment:
     UV_CACHE_DIR: "{{ packages_registry_uv_cache_dir }}"

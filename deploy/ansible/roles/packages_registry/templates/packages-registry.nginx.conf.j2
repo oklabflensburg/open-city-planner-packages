@@ -29,11 +29,22 @@ server {
     error_log /var/log/nginx/packages-registry-error.log;
 
     location = /index.json {
+{% if packages_registry_v1_db_compat_routing_enabled | default(false) %}
+        proxy_pass http://127.0.0.1:{{ packages_registry_backend_port }};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache off;
+        proxy_intercept_errors off;
+        proxy_next_upstream off;
+{% else %}
         default_type application/json;
         add_header Cache-Control "public, max-age=300" always;
+        try_files $uri =404;
+{% endif %}
         add_header X-Content-Type-Options "nosniff" always;
         add_header Referrer-Policy "no-referrer" always;
-        try_files $uri =404;
     }
 
     location ~ ^/modules/([a-z][a-z0-9]*(?:-[a-z0-9]+)*)/([0-9A-Za-z.+-]+)/\1-\2\.ocp$ {
@@ -46,11 +57,22 @@ server {
     }
 
     location ~ ^/modules/[a-z][a-z0-9]*(?:-[a-z0-9]+)*\.json$ {
+{% if packages_registry_v1_db_compat_routing_enabled | default(false) %}
+        proxy_pass http://127.0.0.1:{{ packages_registry_backend_port }};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache off;
+        proxy_intercept_errors off;
+        proxy_next_upstream off;
+{% else %}
         default_type application/json;
         add_header Cache-Control "public, max-age=300" always;
+        try_files $uri =404;
+{% endif %}
         add_header X-Content-Type-Options "nosniff" always;
         add_header Referrer-Policy "no-referrer" always;
-        try_files $uri =404;
     }
 
     location ~ /\. {

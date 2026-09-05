@@ -27,11 +27,14 @@ with TestClient(app) as client:
     assert client.get("/api/v1/packages").status_code == 200
     assert client.get("/api/v1/modules").status_code == 404
     assert client.get("/ready").status_code == 404
+    assert client.get("/index.json").status_code == 404
+    assert client.get("/modules/statistics.json").status_code == 404
     assert "/api/v1/modules" not in client.get("/openapi.json").json()["paths"]
 """
     env = {
         **os.environ,
         "PACKAGES_REGISTRY_V2_API_ENABLED": "false",
+        "PACKAGES_REGISTRY_V1_DB_COMPAT_ENABLED": "false",
         "PACKAGES_REGISTRY_DATABASE_URL": "invalid-and-unused",
     }
     result = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True)
@@ -50,3 +53,9 @@ def test_invalid_activation_flag_fails_explicitly(monkeypatch):
     monkeypatch.setenv("PACKAGES_REGISTRY_V2_API_ENABLED", "typo")
     with pytest.raises(ValueError, match="must be true or false"):
         create_app()
+
+
+def test_invalid_compatibility_activation_flag(monkeypatch):
+    monkeypatch.setenv("PACKAGES_REGISTRY_V1_DB_COMPAT_ENABLED", "typo")
+    with pytest.raises(ValueError, match="must be true or false"):
+        create_app(v2_enabled=False)

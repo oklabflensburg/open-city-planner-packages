@@ -8,6 +8,10 @@ User={{ packages_registry_service_user }}
 Group={{ packages_registry_service_group }}
 WorkingDirectory={{ packages_registry_current_path }}
 Environment=PACKAGES_REGISTRY_SOURCE={{ packages_registry_current_path }}/registry
+{% if packages_registry_v1_db_compat_enabled | default(false) %}
+EnvironmentFile={{ packages_registry_database_environment_file }}
+Environment=PACKAGES_REGISTRY_V1_DB_COMPAT_ENABLED=true
+{% endif %}
 ExecStart={{ packages_registry_current_path }}/.venv/bin/uvicorn web.backend.app.main:app --host 127.0.0.1 --port {{ packages_registry_backend_port }}
 Restart=on-failure
 RestartSec=3

@@ -30,3 +30,9 @@ packages_registry_run_external_smoke_check: true
 
 packages_registry_manage_certificates: false
 packages_registry_certbot_email: ""
+
+# Backend shadow activation and public routing are independent, explicit switches.
+packages_registry_v1_db_compat_enabled: false
+packages_registry_v1_db_compat_routing_enabled: false
+# Existing, root-owned EnvironmentFile containing the read-only DATABASE_URL.
+packages_registry_database_environment_file: /etc/open-city-planner-packages/registry-db.env

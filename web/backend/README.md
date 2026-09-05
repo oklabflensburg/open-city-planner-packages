@@ -24,3 +24,10 @@ uv run uvicorn web.backend.app.main:app --reload --port 8000
 
 Set `PACKAGES_REGISTRY_SOURCE` only when a different read-only Registry source
 directory is required.
+
+The independently opt-in Registry v1 compatibility endpoints are documented in the
+[contract audit and runbook](../../docs/registry-v1-db-compatibility.md).
+`PACKAGES_REGISTRY_V1_DB_COMPAT_ENABLED=true` enables `/index.json`,
+`/modules/{id}.json` and DB readiness with the same read-only snapshot convention.
+Public Nginx routing stays static until separately enabled. The read-only preflight
+CLI is `python -m web.backend.app.registry_verify_v1 --dist /path/to/frozen/dist`.

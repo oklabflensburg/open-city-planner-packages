@@ -113,7 +113,7 @@ def legacy_repository(request):
     return request.app.dependency_overrides.get(repository, repository)()
 
 
-def configure(app: FastAPI, legacy: APIRouter, *, engine_factory=None):
+def configure_database(app: FastAPI, *, engine_factory=None):
     @asynccontextmanager
     async def lifespan(application):
         # URL validation and engine creation are mandatory when enabled. Connectivity is
@@ -126,14 +126,6 @@ def configure(app: FastAPI, legacy: APIRouter, *, engine_factory=None):
             engine.dispose()
 
     app.router.lifespan_context = lifespan
-    app.include_router(APIRouter(routes=[r for r in legacy.routes if r.path not in SHARED_PATHS]))
-    router = APIRouter(
-        tags=["Registry v2 (shadow)"],
-        responses={
-            404: {"model": RegistryError, "description": "Published record not found"},
-            503: {"model": RegistryError, "description": "Registry database unavailable"},
-        },
-    )
 
     @app.exception_handler(SQLAlchemyError)
     async def unavailable(_request, _exc):
@@ -151,6 +143,24 @@ def configure(app: FastAPI, legacy: APIRouter, *, engine_factory=None):
         return JSONResponse(
             {"detail": str(exc)}, status_code=404, headers={"Cache-Control": "no-cache"}
         )
+
+    @app.get("/ready", response_model=Readiness, tags=["health"])
+    def ready(service: Service):
+        revision = service.repository.schema_revision()
+        if revision != EXPECTED_SCHEMA_REVISION:
+            raise HTTPException(503, "Registry database schema is not ready")
+        return Readiness(schema_revision=revision)
+
+
+def configure(app: FastAPI, legacy: APIRouter):
+    app.include_router(APIRouter(routes=[r for r in legacy.routes if r.path not in SHARED_PATHS]))
+    router = APIRouter(
+        tags=["Registry v2 (shadow)"],
+        responses={
+            404: {"model": RegistryError, "description": "Published record not found"},
+            503: {"model": RegistryError, "description": "Registry database unavailable"},
+        },
+    )
 
     @app.middleware("http")
     async def cache_boundary(request, call_next):
@@ -274,13 +284,6 @@ def configure(app: FastAPI, legacy: APIRouter, *, engine_factory=None):
             service.get_publisher(publisher_id, limit=limit, offset=offset),
             negotiated=True,
         )
-
-    @router.get("/ready", response_model=Readiness, tags=["health"])
-    def ready(service: Service):
-        revision = service.repository.schema_revision()
-        if revision != EXPECTED_SCHEMA_REVISION:
-            raise HTTPException(503, "Registry database schema is not ready")
-        return Readiness(schema_revision=revision)
 
     app.include_router(router)
     original_openapi = app.openapi

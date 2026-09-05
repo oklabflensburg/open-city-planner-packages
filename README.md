@@ -216,3 +216,8 @@ Registry v1 remains the static authoritative data contract for `packages.stadtpl
 ## License
 
 Licensed under the **GNU Affero General Public License v3.0**. See [`LICENSE`](LICENSE).
+
+Registry v1 compatibility can be served from PostgreSQL in explicit opt-in mode at
+`/index.json` and `/modules/{id}.json`. Production authority remains unchanged until
+an explicit, verified routing cutover; merging code does not activate it. See the
+[compatibility contract and cutover runbook](docs/registry-v1-db-compatibility.md).
