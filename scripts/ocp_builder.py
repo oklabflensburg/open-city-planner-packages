@@ -733,6 +733,7 @@ def orchestrate(
     candidate = create_candidate(
         output, identity, first_digest, builder_version, run_id, planned_channel
     )
+    candidate["builder_commit"] = environment["builder_commit"]
     candidate["registry_status"] = check_registry_immutability(identity, first_digest)
     candidate["build_environment"] = environment
     (candidate_dir / "provenance.json").write_text(canonical_json(candidate), encoding="utf-8")
