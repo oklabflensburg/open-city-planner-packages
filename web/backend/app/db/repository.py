@@ -87,30 +87,40 @@ class RegistryDatabaseRepository:
         return result
 
     def insert_published_version(
-        self, module_id: str, release: dict[str, Any], *, historical_order: int | None = None
+        self,
+        module_id: str,
+        release: dict[str, Any],
+        *,
+        historical_order: int | None = None,
+        provenance_values: dict[str, Any] | None = None,
     ) -> bool:
-        """Insert validated historical v1 metadata or reject conflicts; never promote channels.
+        """Insert validated release metadata or reject conflicts; never promote channels.
 
         Returns True only for an insertion. Row locking serializes same-module calls
         through dependency insertion, so an identical concurrent retry sees a complete
-        version. Evidence not present in v1 is explicitly unknown.
+        version. Historical imports retain unknown evidence; trusted promotion supplies
+        explicit provenance after review and durable artifact verification.
         """
         module = self.session.scalar(select(Module).where(Module.id == module_id).with_for_update())
         if module is None:
             raise RegistryConflict(f"Missing module: {module_id}")
         validate_module({**self.module_structure(module), "versions": [release]}, "DB version")
+        promoted = provenance_values is not None
+        evidence = provenance_values if promoted else self.historical_provenance(module, release)
         previous = self.session.get(ModuleVersion, (module_id, release["version"]))
         if previous is not None:
             if historical_order is not None and previous.historical_order != historical_order:
                 raise RegistryConflict("Historical version order conflict")
-            if self.release_structure(previous) != release or previous.published_at is not None:
+            if (
+                self.release_structure(previous) != release
+                or (previous.published_at is not None) != promoted
+            ):
                 raise RegistryConflict(
                     f"Immutable version conflict: {module_id}@{release['version']}"
                 )
             provenance = self.session.get(BuildProvenance, previous.build_provenance_id)
             if provenance is None or any(
-                getattr(provenance, field) != value
-                for field, value in self.historical_provenance(module, release).items()
+                getattr(provenance, field) != value for field, value in evidence.items()
             ):
                 raise RegistryConflict(f"Historical provenance conflict: {module_id}")
             artifact = self.session.get(Artifact, previous.artifact_id)
@@ -132,9 +142,7 @@ class RegistryDatabaseRepository:
         artifact = self.ensure_record(
             Artifact, {"digest_algorithm": "sha256", "digest": release["artifact"]["sha256"]}
         )
-        provenance = BuildProvenance(
-            **self.historical_provenance(module, release), imported_at=func.now()
-        )
+        provenance = BuildProvenance(**evidence, imported_at=None if promoted else func.now())
         self.session.add(provenance)
         self.session.flush()
         self.session.add(
@@ -151,7 +159,7 @@ class RegistryDatabaseRepository:
                 host_compatibility=release["requires"]["host"],
                 sdk_compatibility=release["requires"]["sdk"],
                 historical_publication_channel=release["channel"],
-                published_at=None,
+                published_at=func.now() if promoted else None,
             )
         )
         self.session.flush()

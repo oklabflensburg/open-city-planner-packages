@@ -37,7 +37,7 @@ from web.backend.app.models import (
     SearchResult,
 )
 
-EXPECTED_SCHEMA_REVISION = "0045_registry_v2"
+EXPECTED_SCHEMA_REVISION = "0049_promotions"
 Limit = Annotated[int, Query(ge=1, le=100)]
 Offset = Annotated[int, Query(ge=0)]
 

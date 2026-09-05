@@ -191,6 +191,35 @@ class ModuleDependency(Base):
     )
 
 
+class PromotionEvent(Base):
+    __tablename__ = "promotion_events"
+    idempotency_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    module_id: Mapped[str] = mapped_column(Text)
+    version: Mapped[str] = mapped_column(Text)
+    channel: Mapped[str] = mapped_column(Text)
+    candidate_digest: Mapped[str] = mapped_column(Text)
+    approval_reference: Mapped[str] = mapped_column(Text)
+    approval_identity: Mapped[str] = mapped_column(Text)
+    previous_channel_version: Mapped[str | None] = mapped_column(Text)
+    new_channel_version: Mapped[str] = mapped_column(Text)
+    intent: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    result: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    committed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["module_id", "version"],
+            ["module_versions.module_id", "module_versions.version"],
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint("module_id", "version"),
+        CheckConstraint("channel IN ('stable', 'beta', 'nightly')", name="channel"),
+        CheckConstraint("candidate_digest ~ '^[0-9a-f]{64}$'", name="candidate_digest"),
+        CheckConstraint("new_channel_version = version", name="target"),
+    )
+
+
 class ImmutableRecordError(ValueError):
     """An application attempted to rewrite published history."""
 
@@ -198,7 +227,7 @@ class ImmutableRecordError(ValueError):
 @event.listens_for(Session, "before_flush")
 def protect_history(session: Session, flush_context: object, instances: object) -> None:
     """ORM guard; privileged SQL is not a supported registry write interface."""
-    immutable = (ModuleVersion, ModuleDependency, BuildProvenance)
+    immutable = (ModuleVersion, ModuleDependency, BuildProvenance, PromotionEvent)
     for obj in session.deleted:
         if isinstance(obj, (*immutable, Artifact)):
             raise ImmutableRecordError(

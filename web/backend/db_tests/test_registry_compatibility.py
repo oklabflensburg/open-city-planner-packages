@@ -282,7 +282,7 @@ def test_read_only_parity_preflight(compat_engine, tmp_path):
         "module_byte_parity": 3,
         "published_versions": 6,
         "representable": True,
-        "schema_revision": "0045_registry_v2",
+        "schema_revision": "0049_promotions",
     }
     dist = tmp_path / "dist"
     shutil.copytree(ROOT / "dist", dist)

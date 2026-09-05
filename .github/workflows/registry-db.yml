@@ -62,7 +62,7 @@ jobs:
       - name: Install locked Host dependencies
         working-directory: _host-verifier/backend
         run: uv sync --frozen --extra dev --no-editable
-      - name: Verify PostgreSQL, v1 byte parity, guards, HTTP and real Host contracts
+      - name: Verify PostgreSQL promotion, concurrency, v1 parity, HTTP and real Host pilot
         env:
           PACKAGES_REGISTRY_HOST_VERIFIER_ROOT: ${{ github.workspace }}/_host-verifier
         # API fixtures migrate a fresh schema and import v1 before HTTP requests.

@@ -13,6 +13,23 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  application-changes:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      deploy: ${{ steps.changes.outputs.deploy }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Classify exact push range
+        id: changes
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        run: python scripts/application_changes.py --before "$BEFORE_SHA" --after "$AFTER_SHA" >> "$GITHUB_OUTPUT"
+
   ansible:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -220,11 +237,12 @@ jobs:
         run: echo "No new release artifacts to verify."
 
   deploy-production:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.application-changes.outputs.deploy == 'true'
     needs:
       - validate
       - ansible
       - web
+      - application-changes
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment:
