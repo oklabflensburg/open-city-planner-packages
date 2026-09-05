@@ -189,10 +189,10 @@ error. On a failed first deployment, there is no rollback target, so the broken
 `current` link is removed and both services are stopped. Failures
 before activation never touch the active release.
 
-After a successful smoke check, mtime-based retention keeps five releases by
-default. The active release and the release that was active at the start of the
-deploy are protected from that run's pruning. Retention searches only
-`releases/`; it never traverses or removes `artifacts/`.
+Deployment ends after successful verification, without pruning. Independent daily
+maintenance keeps five releases by default, including `current` and `previous`.
+See [independent retention](#independent-application-release-retention) below.
+Retention searches only `releases/`; it never removes `artifacts/`.
 
 ## Automatic and recovery artifact publication
 
@@ -278,3 +278,64 @@ curl --fail --show-error \
 Common failures are a dirty managed checkout, missing TLS files, insufficient
 disk space, a non-symlink `current` path, a stale committed `dist/`, or public
 DNS still reaching another server.
+## Independent application release retention
+
+Deployment completion is **not** retention maintenance. A normal deploy still requires
+checkout, assembly, dependency installation, frontend checks, Registry validation,
+deterministic dist, artifact integrity, nginx validation, atomic activation, restarts,
+health checks, local TLS and public verification. No pruning follows those gates.
+
+Incident run [33948457782](https://github.com/oklabflensburg/open-city-planner-packages/actions/runs/33948457782)
+activated and verified `97e48349e614334caa3c89fb2226f2197986767e`, then lost SSH after
+roughly five minutes in the recursive Ansible prune task for release `023e2ec6…`.
+The old policy retained **five total releases**, protecting the current release and
+the predecessor captured in the deploy's in-memory facts, then keeping newest mtimes.
+Current was required to be a symlink into the release root with a full SHA basename;
+the old find/delete loop did not independently validate every deletion target.
+Large release-local `node_modules`, `.venv` and build trees explain why recursive
+cleanup can be expensive; no production filesystem measurement was performed.
+
+The same five-total policy now lives only in the installed local Python executable
+`/usr/local/libexec/ocp-packages-prune-releases`. Equal mtimes are ordered by SHA.
+`current` and the persistent `previous` symlink are always protected; with two distinct
+protected releases, three newest inactive releases are retained. After verification,
+a different predecessor is recorded in `previous`; redeploying current preserves it.
+Rollback behavior is unchanged. Failed health checks leave the old `previous` intact.
+
+`packages-registry-cleanup.timer` runs daily with a randomized delay. Its oneshot
+service deletes locally without a long-lived SSH session, at low CPU/I/O priority.
+It has no permission to write outside releases and its runtime lock directory.
+The deploy installs/enables the timer, but never starts or waits for the cleanup service.
+Manual maintenance queues that same service and returns immediately:
+
+```sh
+cd deploy/ansible
+uv run ansible-playbook -i inventory/production.ini playbooks/cleanup.yml
+# Inspect separately on the server; queue success does not mean cleanup success:
+systemctl status packages-registry-cleanup.service packages-registry-cleanup.timer
+journalctl -u packages-registry-cleanup.service
+```
+
+All entries must resolve to direct, non-symlink full lowercase SHA directories beneath
+the configured canonical `releases/` root, with a matching regular `.release-ready`
+marker. Missing protection pointers, unknown entries, symlink releases and mounted
+subtrees fail closed. Internal pnpm symlinks are unlinked, never followed. Cleanup
+rechecks protection immediately before each fd-safe recursive removal. Repeating a
+successful cleanup is a no-op; errors remain visible as failed service status and in
+the journal, without rolling back or changing a successful deployment result.
+
+Deployment and cleanup exclusively acquire `/var/lib/ocp-packages-maintenance/lock`
+via atomic mkdir. Cleanup defers when the lock exists; deploy refuses concurrent work.
+A deployment removes its lock in `always`, including ordinary failures. SSH loss or
+process termination may leave a stale lock (which deliberately survives reboots):
+inspect running deployment/cleanup processes and both release pointers
+before an operator removes that **empty lock directory**. Never automatically break it.
+On a first deploy, or when upgrading an installation without a recorded predecessor,
+cleanup refuses until a subsequent distinct deployment establishes `previous`. An
+incomplete/partially deleted release also requires explicit operator classification;
+the script never guesses that unknown paths are safe to delete.
+
+`/opt/open-city-planner-packages/releases` is disposable **application deployment history**.
+`/opt/open-city-planner-packages/artifacts/modules` is immutable **package artifact storage**.
+Artifacts, repository checkout and caches are outside the cleanup scope. No production
+cleanup or deploy is run as part of developing/testing this change.

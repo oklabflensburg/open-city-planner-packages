@@ -1,0 +1,9 @@
+---
+- name: Queue independent package registry retention maintenance
+  hosts: packages_registry
+  become: true
+  tasks:
+    - name: Configure and queue local maintenance
+      ansible.builtin.include_role:
+        name: packages_registry
+        tasks_from: cleanup

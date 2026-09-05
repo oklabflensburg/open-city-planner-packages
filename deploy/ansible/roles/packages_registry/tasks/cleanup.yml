@@ -1,0 +1,9 @@
+---
+- name: Install independent maintenance entry point
+  ansible.builtin.include_tasks: install_cleanup.yml
+
+- name: Queue local release cleanup independently of SSH
+  ansible.builtin.systemd_service:
+    name: packages-registry-cleanup.service
+    state: started
+    no_block: true

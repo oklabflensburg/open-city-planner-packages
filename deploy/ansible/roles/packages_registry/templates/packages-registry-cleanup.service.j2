@@ -1,0 +1,15 @@
+[Unit]
+Description=Prune old inactive Open City Planner package registry releases
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/libexec/ocp-packages-prune-releases --release-root {{ packages_registry_releases_dir }} --retention {{ packages_registry_release_retention }}
+TimeoutStartSec=infinity
+Nice=19
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths={{ packages_registry_releases_dir }} /var/lib/ocp-packages-maintenance
