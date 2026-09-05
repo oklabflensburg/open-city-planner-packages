@@ -339,3 +339,9 @@ the script never guesses that unknown paths are safe to delete.
 `/opt/open-city-planner-packages/artifacts/modules` is immutable **package artifact storage**.
 Artifacts, repository checkout and caches are outside the cleanup scope. No production
 cleanup or deploy is run as part of developing/testing this change.
+
+See the [Artifact Store contract](../../docs/artifact-store.md) for the shared
+filesystem backend, independent trusted local publication, HTTP symlink protection,
+publisher/reader permissions and backup/restore. The existing mirror CLI/playbooks
+continue to operate; #46 adds no production candidate promotion. The Ansible test
+suite now also requires `nginx` and `openssl` for isolated loopback HTTP tests.

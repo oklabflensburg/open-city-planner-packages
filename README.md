@@ -71,6 +71,8 @@ current-system audit, source-of-truth matrix and gated migration plan. Registry 
 remains authoritative until the documented cutover; this is not a completed migration.
 The optional [PostgreSQL shadow workflow](docs/registry-shadow-database.md) implements
 the #45 data model and lossless v1 import without changing production reads.
+The [immutable Artifact Store](docs/artifact-store.md) provides a shared filesystem
+backend for the existing mirror and an independent trusted local publisher.
 
 ## Why a static registry today?
 

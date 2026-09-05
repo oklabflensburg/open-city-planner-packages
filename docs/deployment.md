@@ -59,3 +59,7 @@ and headers. `playbooks/publish-artifact.yml` remains a separate recovery tool.
 Release rollback and retention inspect only `releases/` and cannot delete
 `artifacts/`. Artifact verification remains a pull-request publishing gate, and
 registry availability is never a runtime dependency for installed modules.
+
+The [Artifact Store contract](artifact-store.md) documents the shared storage core,
+independent local publisher, HTTP symlink protection and artifact backup/restore.
+Existing deploy-triggered mirroring remains compatible until the #49 cutover.
