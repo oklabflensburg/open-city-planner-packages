@@ -86,3 +86,51 @@ def test_dependency_metadata_roundtrip_with_real_host(pg_engine, host, tmp_path)
         )
     capture_snapshot(pg_engine, tmp_path)
     run_host(host, "verify", tmp_path)
+
+
+def test_reviewed_statistics_promotion_with_original_bytes(pg_engine, host, tmp_path):
+    import json
+    import shutil
+
+    from scripts.artifact_store import FilesystemArtifactStore
+    from scripts.reviewed_candidate import GitHubCandidateSource, extract_reviewed_archive
+    from web.backend.app.registry_promotion import PromotionIntent, RegistryPromotionService
+
+    fixture = ROOT / "tests/fixtures/reviewed-statistics-0.4.0"
+    evidence = json.loads((fixture / "github-evidence.json").read_text())
+    reviewer = GitHubCandidateSource(evidence.__getitem__)  # recorded public GitHub, no CI network
+    digest = "70be3863818e41678fe7c7adeef69edbf865a18d7494a50021cf52e043239626"
+    reviewed = reviewer.load("statistics", "0.4.0", 41, digest)
+    artifact = extract_reviewed_archive(fixture / "candidate.zip", reviewed, tmp_path / "input")
+    import_registry(pg_engine, ROOT / "registry")
+    store = FilesystemArtifactStore(tmp_path / "artifacts")
+    service = RegistryPromotionService(pg_engine, store, candidate_source=reviewer)
+    intent = PromotionIntent(
+        "statistics",
+        "0.4.0",
+        41,
+        digest,
+        reviewed.value["bundle_sha256"],
+        "stable",
+        1,
+        "statistics-real-pilot",
+    )
+    with TestClient(
+        create_app(v2_enabled=True, v1_compat_enabled=True, engine_factory=lambda: pg_engine)
+    ) as client:
+        assert client.get("/api/v1/modules/statistics").json()["stable_version"] == "0.3.0"
+        result = service.promote(intent, artifact)
+        assert result["status"] == "published"
+        assert client.get("/api/v1/modules/statistics").json()["stable_version"] == "0.4.0"
+        assert client.get("/api/v1/modules/statistics/versions/0.4.0").status_code == 200
+        snapshot = tmp_path / "snapshot"
+        (snapshot / "modules").mkdir(parents=True)
+        index = client.get("/index.json")
+        (snapshot / "index.json").write_bytes(index.content)
+        for entry in index.json()["modules"]:
+            metadata = client.get(entry["metadata"])
+            assert metadata.status_code == 200
+            (snapshot / entry["metadata"].lstrip("/")).write_bytes(metadata.content)
+        stored = store.root / result["storage_locator"]
+        shutil.copyfile(stored, tmp_path / "statistics-0.4.0.ocp")
+        run_host(host, "statistics-pilot", tmp_path)

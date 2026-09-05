@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from scripts.artifact_store import canonical_public_artifact_url
 from scripts.ocp_builder import COMMIT_RE, load_policies
 from scripts.registry import SEMVER_RE, SHA256_RE, canonical_json
 
@@ -84,6 +85,22 @@ def validate_candidate(value: Any) -> dict[str, Any]:
     if not re.fullmatch(r"github-actions://run/[0-9]+/[a-z0-9.-]+", value["artifact_candidate"]):
         raise ValueError("candidate artifact is not a GitHub Actions run artifact")
     return value
+
+
+def candidate_release(value: dict[str, Any]) -> dict[str, Any]:
+    """Shared immutable release mapping for legacy preparation and trusted DB promotion."""
+    return {
+        "version": value["version"],
+        "channel": value["planned_channel"],
+        "artifact": {
+            "url": canonical_public_artifact_url(value["module_id"], value["version"]),
+            "sha256": value["bundle_sha256"],
+        },
+        "bundle_format_version": value["bundle_format_version"],
+        "source_commit": value["source_commit"],
+        "source_tag": value["source_tag"],
+        "requires": value["requires"],
+    }
 
 
 def store_candidate(source: Path, root: Path) -> tuple[Path, bool]:

@@ -1,15 +1,15 @@
-"""Promote main-reviewed candidate metadata only after permanent artifact verification."""
+"""Legacy/pre-writer-cutover JSON PR preparation; use registry_promote for Registry v2."""
 
 import argparse
 import copy
 import json
+import os
 import subprocess
 import tempfile
 from pathlib import Path
 
 from scripts.build_registry import build
 from scripts.registry import (
-    CANONICAL_REGISTRY_HOST,
     MODULE_ID_RE,
     SEMVER_RE,
     canonical_json,
@@ -17,7 +17,7 @@ from scripts.registry import (
     validate_immutability,
     validate_module,
 )
-from scripts.registry_candidate import validate_candidate
+from scripts.registry_candidate import candidate_release, validate_candidate
 from scripts.verify_artifacts import ArtifactVerificationError, ReleaseCandidate, download_artifact
 
 
@@ -46,6 +46,8 @@ def reviewed_candidate(root: Path, module_id: str, version: str) -> dict:
 
 
 def promote(root: Path, candidate: dict, *, downloader=download_artifact) -> bool:
+    if os.environ.get("PACKAGES_REGISTRY_WRITER_CUTOVER_ENABLED") == "true":
+        raise PromotionBlocked("Legacy JSON publication is disabled after DB writer cutover")
     value = validate_candidate(candidate)
     module_id, version = value["module_id"], value["version"]
     modules = load_registry(root / "registry")
@@ -53,18 +55,8 @@ def promote(root: Path, candidate: dict, *, downloader=download_artifact) -> boo
     module = next((m for m in updated if m["id"] == module_id), None)
     if module is None or module["source_repository"] != value["source_repository"]:
         raise ValueError("candidate has no matching reviewed Registry identity")
-    url = (
-        f"https://{CANONICAL_REGISTRY_HOST}/modules/{module_id}/{version}/{module_id}-{version}.ocp"
-    )
-    release = {
-        "version": version,
-        "channel": value["planned_channel"],
-        "artifact": {"url": url, "sha256": value["bundle_sha256"]},
-        "bundle_format_version": value["bundle_format_version"],
-        "source_commit": value["source_commit"],
-        "source_tag": value["source_tag"],
-        "requires": value["requires"],
-    }
+    release = candidate_release(value)
+    url = release["artifact"]["url"]
     previous = next((r for r in module["versions"] if r["version"] == version), None)
     if previous is not None:
         if previous != release:

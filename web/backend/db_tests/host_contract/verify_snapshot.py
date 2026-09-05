@@ -1,7 +1,7 @@
 """Run with the pinned Host's Python, using its real client, bundle and installer helpers.
 
 No network: metadata is the DB HTTP output captured by the parent integration test;
-only the synthetic fixture's artifact bytes are available to the mock transport.
+only explicitly retained test artifact bytes are available to the mock transport.
 """
 
 import json
@@ -43,6 +43,8 @@ def transport(request):
         return httpx.Response(200, content=path.read_bytes(), headers={"Cache-Control": "no-cache"})
     if request.url.path == "/modules/registry-module/1.0.0/registry-module-1.0.0.ocp":
         return httpx.Response(200, content=(root / "registry-module-1.0.0.ocp").read_bytes())
+    if request.url.path == "/modules/statistics/0.4.0/statistics-0.4.0.ocp":
+        return httpx.Response(200, content=(root / "statistics-0.4.0.ocp").read_bytes())
     return httpx.Response(404)
 
 
@@ -82,4 +84,24 @@ with ModuleRegistryClient(transport=httpx.MockTransport(transport)) as client:
         assert repeated == installed
         installer.enable("registry-module")  # Real host/sdk/dependency preflight.
         installer.disable("registry-module")
+    if sys.argv[1] == "statistics-pilot":
+        from app.platform.modules.bundle import staged_ocp_bundle
+
+        from tests.test_module_installer import _installer
+
+        release = client.resolve("statistics", channel="stable")
+        assert release.version == "0.4.0"
+        assert release.sha256 == "6bec701141f8c77dff4c4054ae095be31efe262f9cc3eab6414f68be57ae5423"
+        installer = _installer(root / "statistics-state")
+        with (
+            client.download(release) as downloaded,
+            staged_ocp_bundle(downloaded.path) as (package_root, package),
+        ):
+            client.validate_bundle(release, package)
+            assert installer.verify_installable(package_root).bundle_sha256 == release.sha256
+            installed = installer.install(package_root)
+            assert not installed.enabled
+        # Host's real compatibility/dependency preflight; no production Host.
+        installer.enable("statistics")
+        installer.disable("statistics")
 print("Pinned Host DB snapshot: selection, metadata, digests and requirements passed")

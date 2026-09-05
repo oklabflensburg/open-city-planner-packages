@@ -1,0 +1,40 @@
+{
+  "contents/candidates/statistics/0.4.0/provenance.json?ref=d54085286e5ed0d8df37715b6ed3fca465ee3dbb": {
+    "content": "ewogICJhcnRpZmFjdF9jYW5kaWRhdGUiOiAiZ2l0aHViLWFjdGlvbnM6Ly9y\ndW4vMzM5NDY2MjMxOTkvc3RhdGlzdGljcy0wLjQuMCIsCiAgImJ1aWxkZXJf\nY29tbWl0IjogImU0MDZmYjIyNjdlN2UyOGVhYmEyZjdlODM4NGE4NzZlOWUx\nMGEyZjgiLAogICJidWlsZGVyX3ZlcnNpb24iOiAxLAogICJidW5kbGVfZm9y\nbWF0X3ZlcnNpb24iOiAxLAogICJidW5kbGVfc2hhMjU2IjogIjZiZWM3MDEx\nNDFmOGM3N2RmZjRjNDA1NGFlMDk1YmUzMWVmZTI2MmY5Y2MzZWFiNjQxNGY2\nOGJlNTdhZTU0MjMiLAogICJjbGFzc2lmaWNhdGlvbiI6ICJmaXJzdC1wYXJ0\neSIsCiAgImhvc3RfY29udHJhY3QiOiAicGFzc2VkIiwKICAibW9kdWxlX2lk\nIjogInN0YXRpc3RpY3MiLAogICJwbGFubmVkX2NoYW5uZWwiOiAic3RhYmxl\nIiwKICAicmVnaXN0cnlfc3RhdHVzIjogIm5ldyIsCiAgInJlcHJvZHVjaWJs\nZSI6IHRydWUsCiAgInJlcXVpcmVzIjogewogICAgImhvc3QiOiAiPj0wLjIu\nMCw8MS4wLjAiLAogICAgIm1vZHVsZXMiOiB7fSwKICAgICJzZGsiOiAiPj0x\nLjE1LjAsPDIuMC4wIgogIH0sCiAgInNjaGVtYV92ZXJzaW9uIjogMSwKICAi\nc291cmNlX2NvbW1pdCI6ICIzY2ZjZTA0Yjg1OWU1ZjI3NDgxZjU2NjVhZGM0\nNjY1ZGRjOTM1ZGFjIiwKICAic291cmNlX3JlcG9zaXRvcnkiOiAiaHR0cHM6\nLy9naXRodWIuY29tL29rbGFiZmxlbnNidXJnL29jcC1tb2R1bGUtc3RhdGlz\ndGljcyIsCiAgInNvdXJjZV90YWciOiAidjAuNC4wIiwKICAidmVyc2lvbiI6\nICIwLjQuMCIKfQo=\n",
+    "encoding": "base64",
+    "sha": "49289a745962a29ce0eb520eb5cdc40d67c12ec4"
+  },
+  "contents/candidates/statistics/0.4.0/provenance.json?ref=e77cef5c9d1f13f5e6f3e001764ef6441ea62a77": {
+    "content": "ewogICJhcnRpZmFjdF9jYW5kaWRhdGUiOiAiZ2l0aHViLWFjdGlvbnM6Ly9y\ndW4vMzM5NDY2MjMxOTkvc3RhdGlzdGljcy0wLjQuMCIsCiAgImJ1aWxkZXJf\nY29tbWl0IjogImU0MDZmYjIyNjdlN2UyOGVhYmEyZjdlODM4NGE4NzZlOWUx\nMGEyZjgiLAogICJidWlsZGVyX3ZlcnNpb24iOiAxLAogICJidW5kbGVfZm9y\nbWF0X3ZlcnNpb24iOiAxLAogICJidW5kbGVfc2hhMjU2IjogIjZiZWM3MDEx\nNDFmOGM3N2RmZjRjNDA1NGFlMDk1YmUzMWVmZTI2MmY5Y2MzZWFiNjQxNGY2\nOGJlNTdhZTU0MjMiLAogICJjbGFzc2lmaWNhdGlvbiI6ICJmaXJzdC1wYXJ0\neSIsCiAgImhvc3RfY29udHJhY3QiOiAicGFzc2VkIiwKICAibW9kdWxlX2lk\nIjogInN0YXRpc3RpY3MiLAogICJwbGFubmVkX2NoYW5uZWwiOiAic3RhYmxl\nIiwKICAicmVnaXN0cnlfc3RhdHVzIjogIm5ldyIsCiAgInJlcHJvZHVjaWJs\nZSI6IHRydWUsCiAgInJlcXVpcmVzIjogewogICAgImhvc3QiOiAiPj0wLjIu\nMCw8MS4wLjAiLAogICAgIm1vZHVsZXMiOiB7fSwKICAgICJzZGsiOiAiPj0x\nLjE1LjAsPDIuMC4wIgogIH0sCiAgInNjaGVtYV92ZXJzaW9uIjogMSwKICAi\nc291cmNlX2NvbW1pdCI6ICIzY2ZjZTA0Yjg1OWU1ZjI3NDgxZjU2NjVhZGM0\nNjY1ZGRjOTM1ZGFjIiwKICAic291cmNlX3JlcG9zaXRvcnkiOiAiaHR0cHM6\nLy9naXRodWIuY29tL29rbGFiZmxlbnNidXJnL29jcC1tb2R1bGUtc3RhdGlz\ndGljcyIsCiAgInNvdXJjZV90YWciOiAidjAuNC4wIiwKICAidmVyc2lvbiI6\nICIwLjQuMCIKfQo=\n",
+    "encoding": "base64",
+    "sha": "49289a745962a29ce0eb520eb5cdc40d67c12ec4"
+  },
+  "contents/candidates/statistics/0.4.0/provenance.json?ref=main": {
+    "content": "ewogICJhcnRpZmFjdF9jYW5kaWRhdGUiOiAiZ2l0aHViLWFjdGlvbnM6Ly9y\ndW4vMzM5NDY2MjMxOTkvc3RhdGlzdGljcy0wLjQuMCIsCiAgImJ1aWxkZXJf\nY29tbWl0IjogImU0MDZmYjIyNjdlN2UyOGVhYmEyZjdlODM4NGE4NzZlOWUx\nMGEyZjgiLAogICJidWlsZGVyX3ZlcnNpb24iOiAxLAogICJidW5kbGVfZm9y\nbWF0X3ZlcnNpb24iOiAxLAogICJidW5kbGVfc2hhMjU2IjogIjZiZWM3MDEx\nNDFmOGM3N2RmZjRjNDA1NGFlMDk1YmUzMWVmZTI2MmY5Y2MzZWFiNjQxNGY2\nOGJlNTdhZTU0MjMiLAogICJjbGFzc2lmaWNhdGlvbiI6ICJmaXJzdC1wYXJ0\neSIsCiAgImhvc3RfY29udHJhY3QiOiAicGFzc2VkIiwKICAibW9kdWxlX2lk\nIjogInN0YXRpc3RpY3MiLAogICJwbGFubmVkX2NoYW5uZWwiOiAic3RhYmxl\nIiwKICAicmVnaXN0cnlfc3RhdHVzIjogIm5ldyIsCiAgInJlcHJvZHVjaWJs\nZSI6IHRydWUsCiAgInJlcXVpcmVzIjogewogICAgImhvc3QiOiAiPj0wLjIu\nMCw8MS4wLjAiLAogICAgIm1vZHVsZXMiOiB7fSwKICAgICJzZGsiOiAiPj0x\nLjE1LjAsPDIuMC4wIgogIH0sCiAgInNjaGVtYV92ZXJzaW9uIjogMSwKICAi\nc291cmNlX2NvbW1pdCI6ICIzY2ZjZTA0Yjg1OWU1ZjI3NDgxZjU2NjVhZGM0\nNjY1ZGRjOTM1ZGFjIiwKICAic291cmNlX3JlcG9zaXRvcnkiOiAiaHR0cHM6\nLy9naXRodWIuY29tL29rbGFiZmxlbnNidXJnL29jcC1tb2R1bGUtc3RhdGlz\ndGljcyIsCiAgInNvdXJjZV90YWciOiAidjAuNC4wIiwKICAidmVyc2lvbiI6\nICIwLjQuMCIKfQo=\n",
+    "encoding": "base64",
+    "sha": "49289a745962a29ce0eb520eb5cdc40d67c12ec4"
+  },
+  "pulls/41": {
+    "base": {
+      "ref": "main",
+      "repo": {
+        "full_name": "oklabflensburg/open-city-planner-packages"
+      }
+    },
+    "head": {
+      "sha": "e77cef5c9d1f13f5e6f3e001764ef6441ea62a77"
+    },
+    "merge_commit_sha": "d54085286e5ed0d8df37715b6ed3fca465ee3dbb",
+    "merged": true,
+    "merged_by": {
+      "login": "p3t3r67x0",
+      "type": "User"
+    }
+  },
+  "pulls/41/files?per_page=100": [
+    {
+      "filename": "candidates/statistics/0.4.0/provenance.json",
+      "status": "added"
+    }
+  ]
+}

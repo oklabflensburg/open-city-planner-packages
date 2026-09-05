@@ -11,6 +11,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
+from zipfile import ZipFile
 
 import pytest
 from jinja2 import Environment, StrictUndefined
@@ -36,8 +37,13 @@ def test_real_nginx_serves_only_complete_immutable_artifacts(tmp_path, db_routin
     openssl = shutil.which("openssl")
     assert openssl
     source = tmp_path / "reviewed.ocp"
-    source.write_bytes(b"complete reviewed fixture")
+    with ZipFile(
+        Path(__file__).resolve().parents[3]
+        / "tests/fixtures/reviewed-statistics-0.4.0/candidate.zip"
+    ) as archive:
+        source.write_bytes(archive.read("statistics-0.4.0.ocp"))
     digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    assert digest == "6bec701141f8c77dff4c4054ae095be31efe262f9cc3eab6414f68be57ae5423"
     store = FilesystemArtifactStore(tmp_path / "artifacts")
     record = store.publish("statistics", "0.4.0", source, digest).artifact
     # Partial/source files must never be exposed by the template.

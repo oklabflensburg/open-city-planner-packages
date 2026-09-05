@@ -221,3 +221,10 @@ Registry v1 compatibility can be served from PostgreSQL in explicit opt-in mode 
 `/index.json` and `/modules/{id}.json`. Production authority remains unchanged until
 an explicit, verified routing cutover; merging code does not activate it. See the
 [compatibility contract and cutover runbook](docs/registry-v1-db-compatibility.md).
+
+In the explicitly enabled Registry v2 path, normal module publication is a Registry
+data operation: reviewed bytes are durably stored, then version/provenance/channel
+and audit commit atomically, without an application deploy or runtime restart.
+See [trusted promotion](docs/registry-promotion-v2.md) and the
+[Statistics 0.4.0 pilot runbook](docs/promotion-statistics-0.4.0.md).
+Production writer activation remains a separate reviewed operational cutover.

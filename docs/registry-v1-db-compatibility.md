@@ -215,3 +215,8 @@ The actual Nginx template is rendered and served over isolated loopback TLS in
 both modes, checking metadata authority, cache/revalidation, propagated 503 despite
 existing static files, and `.ocp` route separation. No test uses production DB,
 artifact store, SSH or deployment credentials. No auto-merge is configured.
+
+With the #49 promotion-capable service, readiness and the parity CLI require the
+additive `0049_promotions` migration. The historical v1 projection is unchanged.
+Complete the compatible-reader deployment/migration before writer activation; see
+[Registry v2 promotion](registry-promotion-v2.md) for post-write recovery limits.

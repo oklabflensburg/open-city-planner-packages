@@ -19,9 +19,7 @@ def workflow() -> dict:
 
 
 def builder_workflow() -> dict:
-    return yaml.load(
-        BUILDER_WORKFLOW_PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader
-    )
+    return yaml.load(BUILDER_WORKFLOW_PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
 
 def test_central_builder_is_manual_allowlisted_and_has_no_commit_override() -> None:
@@ -73,18 +71,47 @@ def test_candidate_is_staged_before_cached_diff_and_pr_requires_branch_diff() ->
 def test_promotion_workflow_main_review_and_no_source_execution() -> None:
     source = (ROOT / ".github/workflows/promote-candidate.yml").read_text()
     value = yaml.load(source, Loader=yaml.BaseLoader)
-    assert set(value["on"]["workflow_dispatch"]["inputs"]) == {"module_id", "version"}
+    assert set(value["on"]) == {"workflow_dispatch"}
+    assert set(value["on"]["workflow_dispatch"]["inputs"]) == {
+        "module_id",
+        "version",
+        "channel",
+        "approval_pr",
+        "candidate_sha256",
+        "bundle_sha256",
+        "expected_channel_revision",
+        "idempotency_key",
+    }
     job = value["jobs"]["promotion"]
-    assert job["if"] == "github.ref == 'refs/heads/main'"
-    assert job["steps"][0]["with"]["ref"] == "main"
-    assert job["permissions"] == {"contents": "write", "pull-requests": "write"}
-    assert "scripts.ocp_builder" not in source
-    assert "secrets." not in source
-    assert "gh pr merge" not in source
-    assert "gh pr create --draft" in source
-    assert "--prepare-blocked" in source
+    assert "github.ref == 'refs/heads/main'" in job["if"]
+    assert "PACKAGES_REGISTRY_WRITER_CUTOVER_ENABLED == 'true'" in job["if"]
+    assert job["environment"] == "production"
+    assert job["runs-on"] == ["self-hosted", "registry-promoter"]
+    assert value["permissions"] == {"contents": "read", "actions": "read", "pull-requests": "read"}
+    assert job["steps"][0]["with"]["ref"] == "${{ github.sha }}"
+    for forbidden in (
+        "scripts.ocp_builder",
+        "gh pr create",
+        "gh pr merge",
+        "pnpm",
+        "npm ",
+        "ansible",
+        "cleanup",
+        "uvicorn",
+        "systemctl",
+        "registry_import_v1",
+    ):
+        assert forbidden not in source
+    assert "--confirm-production-promotion" in source
+    assert "required_reviewers" in source
+    assert "--download-reviewed-artifact" in source
+    assert "PACKAGES_REGISTRY_PROMOTION_DATABASE_URL" in source
     uses = re.findall(r"^\s*-?\s*uses:\s*([^\s#]+)", source, flags=re.MULTILINE)
     assert uses and all(re.fullmatch(r"[^@]+@[0-9a-f]{40}", action) for action in uses)
+    legacy = (ROOT / ".github/workflows/promote-candidate-legacy.yml").read_text()
+    assert "PACKAGES_REGISTRY_LEGACY_JSON_PUBLICATION_ENABLED == 'true'" in legacy
+    assert "PACKAGES_REGISTRY_WRITER_CUTOVER_ENABLED != 'true'" in legacy
+    assert "--prepare-blocked" in legacy
 
 
 def test_registry_triggers_remain_pr_and_main_push_only() -> None:
@@ -97,9 +124,10 @@ def test_registry_triggers_remain_pr_and_main_push_only() -> None:
 def test_production_deploy_runs_only_after_successful_main_ci() -> None:
     deploy = workflow()["jobs"]["deploy-production"]
     assert deploy["if"] == (
-        "github.event_name == 'push' && github.ref == 'refs/heads/main'"
+        "github.event_name == 'push' && github.ref == 'refs/heads/main' "
+        "&& needs.application-changes.outputs.deploy == 'true'"
     )
-    assert set(deploy["needs"]) == {"validate", "ansible", "web"}
+    assert set(deploy["needs"]) == {"validate", "ansible", "web", "application-changes"}
     assert deploy["environment"] == {"name": "production"}
     assert deploy["permissions"] == {"contents": "read"}
     assert deploy["concurrency"] == {
@@ -188,6 +216,32 @@ def test_web_job_runs_locked_frontend_quality_gates() -> None:
 def test_main_pushes_are_not_cancelled_and_production_deploys_serialize() -> None:
     concurrency = workflow()["concurrency"]
     assert "github.run_id" in concurrency["group"]
-    assert concurrency["cancel-in-progress"] == (
-        "${{ github.event_name == 'pull_request' }}"
-    )
+    assert concurrency["cancel-in-progress"] == ("${{ github.event_name == 'pull_request' }}")
+
+
+def test_deploy_classifier_keeps_data_operations_independent():
+    from scripts.application_changes import application_deploy_required
+
+    for paths in (
+        ["candidates/statistics/0.4.0/provenance.json"],
+        ["promotion-plans/statistics/0.4.0.json"],
+        [],
+        ["registry/modules/statistics.json", "dist/index.json"],
+        ["docs/promotion-statistics-0.4.0.md"],
+    ):
+        assert not application_deploy_required(paths)
+    for path in (
+        "web/backend/app/main.py",
+        "web/frontend/app.vue",
+        "deploy/ansible/main.yml",
+        "scripts/ocp_builder.py",
+        "uv.lock",
+        "pyproject.toml",
+    ):
+        assert application_deploy_required([path, "candidates/new.json"])
+    classifier = workflow()["jobs"]["application-changes"]
+    checkout = classifier["steps"][0]
+    assert checkout["with"]["fetch-depth"] == "0"
+    assert "github.event.before" in yaml.safe_dump(classifier)
+    assert "github.sha" in yaml.safe_dump(classifier)
+    assert "paths-ignore" not in workflow_source()  # CI still checks data-only pushes.
