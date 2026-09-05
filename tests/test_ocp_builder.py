@@ -141,6 +141,7 @@ def test_frontend_build_failure_aborts_before_candidate_generation(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     source_identity = identity()
+    monkeypatch.setattr("scripts.ocp_builder.collect_environment", lambda *args: {})
     monkeypatch.setattr("scripts.ocp_builder.validate_host_verifier_checkout", lambda root: None)
     monkeypatch.setattr(
         "scripts.ocp_builder.prepare_checkout",
@@ -318,6 +319,7 @@ def test_reproducibility_mismatch_fails_before_host_contract(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     source_identity = identity()
+    monkeypatch.setattr("scripts.ocp_builder.collect_environment", lambda *args: {})
     calls = 0
 
     monkeypatch.setattr("scripts.ocp_builder.validate_host_verifier_checkout", lambda root: None)

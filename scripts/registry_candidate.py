@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from scripts.ocp_builder import COMMIT_RE, load_policies
-from scripts.registry import SHA256_RE, canonical_json
+from scripts.registry import SEMVER_RE, SHA256_RE, canonical_json
 
 REQUIRED = {
     "schema_version",
@@ -30,11 +30,11 @@ REQUIRED = {
     "requires",
     "registry_status",
 }
-VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$")
+VERSION_RE = SEMVER_RE
 
 
 def validate_candidate(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict) or set(value) != REQUIRED:
+    if not isinstance(value, dict) or set(value) - {"build_environment"} != REQUIRED:
         raise ValueError("candidate has unknown or missing fields")
     _, policies = load_policies()
     module_id = value["module_id"]
@@ -68,6 +68,19 @@ def validate_candidate(value: Any) -> dict[str, Any]:
         raise ValueError("invalid planned channel")
     if not isinstance(value["requires"], dict):
         raise ValueError("candidate requires must be an object")
+    if "build_environment" in value:
+        policy = json.loads(
+            (Path(__file__).parents[1] / "config/builder-environment.json").read_text()
+        )
+        environment = value["build_environment"]
+        if not isinstance(environment, dict) or any(
+            environment.get(key) != expected for key, expected in policy.items()
+        ):
+            raise ValueError("candidate build environment violates builder policy")
+        if environment.get("builder_commit") != value["builder_commit"]:
+            raise ValueError("candidate builder commit mismatch")
+        if not COMMIT_RE.fullmatch(str(environment.get("host_commit", ""))):
+            raise ValueError("candidate host commit invalid")
     if not re.fullmatch(r"github-actions://run/[0-9]+/[a-z0-9.-]+", value["artifact_candidate"]):
         raise ValueError("candidate artifact is not a GitHub Actions run artifact")
     return value
@@ -79,7 +92,7 @@ def store_candidate(source: Path, root: Path) -> tuple[Path, bool]:
     rendered = canonical_json(value)
     if destination.exists():
         existing = json.loads(destination.read_text(encoding="utf-8"))
-        comparable_fields = REQUIRED - {"artifact_candidate"}
+        comparable_fields = REQUIRED - {"artifact_candidate", "builder_commit"}
         if any(existing.get(field) != value[field] for field in comparable_fields):
             raise ValueError("candidate version already exists with different provenance")
         return destination, False

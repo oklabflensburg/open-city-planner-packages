@@ -70,6 +70,23 @@ def test_candidate_is_staged_before_cached_diff_and_pr_requires_branch_diff() ->
     assert 'if [[ "${open_prs}" == 0 ]]' in source
 
 
+def test_promotion_workflow_main_review_and_no_source_execution() -> None:
+    source = (ROOT / ".github/workflows/promote-candidate.yml").read_text()
+    value = yaml.load(source, Loader=yaml.BaseLoader)
+    assert set(value["on"]["workflow_dispatch"]["inputs"]) == {"module_id", "version"}
+    job = value["jobs"]["promotion"]
+    assert job["if"] == "github.ref == 'refs/heads/main'"
+    assert job["steps"][0]["with"]["ref"] == "main"
+    assert job["permissions"] == {"contents": "write", "pull-requests": "write"}
+    assert "scripts.ocp_builder" not in source
+    assert "secrets." not in source
+    assert "gh pr merge" not in source
+    assert "gh pr create --draft" in source
+    assert "--prepare-blocked" in source
+    uses = re.findall(r"^\s*-?\s*uses:\s*([^\s#]+)", source, flags=re.MULTILINE)
+    assert uses and all(re.fullmatch(r"[^@]+@[0-9a-f]{40}", action) for action in uses)
+
+
 def test_registry_triggers_remain_pr_and_main_push_only() -> None:
     triggers = workflow()["on"]
     assert set(triggers) == {"pull_request", "push"}

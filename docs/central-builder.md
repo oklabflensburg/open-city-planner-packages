@@ -115,6 +115,10 @@ pilots; their source-repository workflows are intentionally untouched here.
 
 ## Pilot evidence
 
+These are historical local pilot results before umask was enforced. The
+[cross-run audit](cross-run-reproducibility.md) supersedes their digests as reproducibility
+baselines and documents the new promotion workflow and explicit hosting blocker.
+
 The implementation was exercised locally against Host commit
 `a0ec1edb1c904db18fea78aaffb531407e46f378`, which contains the Analysis Areas migration cutover
 and the Statistics public service contract required by both pilots.

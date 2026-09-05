@@ -1,0 +1,10 @@
+{
+  "python": "3.12.14",
+  "uv": "0.12.5",
+  "node": "22.22.3",
+  "pnpm": "11.22.0",
+  "umask": "0022",
+  "timezone": "UTC",
+  "locale": "C.UTF-8",
+  "pythonhashseed": "0"
+}

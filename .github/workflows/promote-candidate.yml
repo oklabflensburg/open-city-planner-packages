@@ -1,0 +1,67 @@
+name: Promote reviewed candidate
+on:
+  workflow_dispatch:
+    inputs:
+      module_id:
+        type: choice
+        options: [statistics, analysis-areas]
+        required: true
+      version:
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: promote-${{ inputs.module_id }}-${{ inputs.version }}
+  cancel-in-progress: false
+jobs:
+  promotion:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12.14'
+      - run: |
+          python -m pip install uv==0.12.5
+          uv sync --frozen
+      - name: Verify reviewed candidate and permanent artifact, then prepare Registry
+        env:
+          MODULE_ID: ${{ inputs.module_id }}
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run python -m scripts.promote_candidate --module "$MODULE_ID" --version "$VERSION" --prepare-blocked
+          git add registry dist
+          if [[ -d promotion-plans ]]; then git add promotion-plans; fi
+          if git diff --cached --quiet; then exit 0; fi
+          branch="automation/promote-${MODULE_ID}-v${VERSION}"
+          git switch -c "$branch"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "chore(registry): promote ${MODULE_ID} v${VERSION}"
+          if git ls-remote --exit-code --heads origin "$branch"; then
+            git fetch origin "$branch"
+            if ! git diff --quiet FETCH_HEAD HEAD -- registry dist promotion-plans; then
+              echo 'Existing promotion branch differs; human review required.' >&2
+              exit 1
+            fi
+          else
+            git push origin "$branch"
+          fi
+          count="$(gh pr list --base main --head "$branch" --state open --json number --jq length)"
+          if [[ "$count" == 0 ]]; then
+            gh pr create --draft --base main --head "$branch" \
+              --title "chore(registry): promote ${MODULE_ID} v${VERSION}" \
+              --body 'Candidate was read from reviewed main. If this PR contains only promotion-plans, permanent hosting is missing and promotion is BLOCKED; Registry and dist remain unchanged. Otherwise the canonical artifact was downloaded and digest-verified before generating Registry metadata and dist. The candidate specifies the channel. Human review required. No auto-merge.'
+          elif [[ "$count" != 1 ]]; then
+            exit 1
+          fi

@@ -135,6 +135,10 @@ First-party source tags can additionally enter the [central Builder of Record](d
 Its manual workflow performs two independent builds, a pinned Host lifecycle check, and creates a
 review-only candidate PR. It neither auto-merges nor writes the production Registry.
 
+The [cross-run audit and promotion policy](docs/cross-run-reproducibility.md) explains the
+enforced build environment, historical candidate checks, and separate promotion workflow.
+Promotion remains blocked until reviewed candidate bytes are available at the permanent URL.
+
 Artifact verification processes one release at a time with bounded network access and runs only the host's read-only `verify` command—never `install`.
 
 ## Production deployment
