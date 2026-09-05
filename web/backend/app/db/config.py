@@ -20,4 +20,7 @@ def database_url(value: str | None = None) -> URL:
 
 
 def database_engine(value: str | None = None) -> Engine:
-    return create_engine(database_url(value), pool_pre_ping=True, hide_parameters=True)
+    return create_engine(
+        database_url(value), pool_pre_ping=True, hide_parameters=True,
+        pool_timeout=5, connect_args={"connect_timeout": 5},
+    )
