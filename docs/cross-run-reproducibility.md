@@ -97,7 +97,9 @@ This change does not upload to production or pretend the Actions URL is permanen
 Network failures and digest conflicts remain errors. An existing differing promotion branch
 requires explicit review rather than automatic replacement.
 
-Statistics cannot yet be cut over in production: PR #41 is unmerged and therefore not approved.
+At the time of this experiment PR #41 was unmerged and therefore not approved.
+At the [v2 ADR audit baseline](adr/registry-service-v2.md), #41 is merged and its
+candidate is present in main; Statistics 0.4.0 is still absent from Registry v1.
 After candidate review, permanent immutable hosting must be established and the promotion
 workflow rerun; then reviewers can merge the Registry PR through existing CI and deployment.
 No change here mutates Analysis Areas 1.5.3, PR #41, historical digests or source tags.

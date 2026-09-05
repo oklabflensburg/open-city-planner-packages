@@ -38,7 +38,6 @@ This repository does **not** contain:
 - module execution or installer logic;
 - a database-backed marketplace or write API;
 - a dependency resolver;
-- an API server;
 - automatic module installation or updates.
 
 That separation keeps installed modules independent from registry availability and reduces the security-sensitive surface of the package discovery system.
@@ -62,7 +61,16 @@ A typical installation flow is:
 
 Runtime startup never contacts this registry. Already installed modules continue to work if the registry is unavailable.
 
-## Why a static registry?
+## Registry Service v2 architecture
+
+The [Registry Service v2 ADR](docs/adr/registry-service-v2.md) defines the target
+architecture for [#36](https://github.com/oklabflensburg/open-city-planner-packages/issues/36):
+#44 Architecture → #45 PostgreSQL / #46 Artifact Store → #47 API → #48 v1
+compatibility → #49 promotion, with #50 UI consuming the API. It includes the
+current-system audit, source-of-truth matrix and gated migration plan. Registry v1
+remains authoritative until the documented cutover; this is not a completed migration.
+
+## Why a static registry today?
 
 The package registry intentionally uses reviewable files and deterministic output instead of a dynamic marketplace service. This makes module publication easier to audit and keeps the trust boundary explicit.
 
