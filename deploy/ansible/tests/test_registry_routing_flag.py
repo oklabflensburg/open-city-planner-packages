@@ -9,7 +9,8 @@ TEMPLATE = (
 
 
 def render(value):
-    template = jinja2.Environment(undefined=jinja2.StrictUndefined).from_string(TEMPLATE.read_text())
+    environment = jinja2.Environment(undefined=jinja2.StrictUndefined)
+    template = environment.from_string(TEMPLATE.read_text())
     return template.render(
         packages_registry_domain="packages.example.test",
         packages_registry_acme_webroot="/var/www/acme",
