@@ -29,6 +29,13 @@ Repository = "https://github.com/oklabflensburg/open-city-planner-packages"
 "Open City Planner" = "https://github.com/oklabflensburg/open-city-planner"
 "Live application" = "https://stadtplaner.oklabflensburg.de/"
 
+[project.optional-dependencies]
+registry-db = [
+    "alembic==1.19.2",
+    "psycopg[binary]==3.3.5",
+    "sqlalchemy==2.0.52",
+]
+
 [dependency-groups]
 dev = [
   "ansible-core==2.19.12",
