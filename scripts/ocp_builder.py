@@ -7,12 +7,14 @@ import gzip
 import hashlib
 import json
 import os
+import platform
 import re
 import shutil
 import subprocess
 import tarfile
 import tempfile
 import tomllib
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -80,7 +82,8 @@ def run(command: list[str], *, cwd: Path | None = None, env: dict[str, str] | No
     result = subprocess.run(
         command,
         cwd=cwd,
-        env=None if env is None else {**os.environ, **env},
+        env={**os.environ, "TZ": "UTC", "LC_ALL": "C.UTF-8", "PYTHONHASHSEED": "0", **(env or {})},
+        umask=0o022,
         check=False,
         capture_output=True,
         text=True,
@@ -125,9 +128,7 @@ def load_policies(path: Path = CONFIG_PATH) -> tuple[int, dict[str, ModulePolicy
                 or not re.fullmatch(r"[A-Za-z0-9_.]+:[A-Za-z0-9_]+", service["contract"])
             ):
                 raise BuilderError(f"invalid service contract for {module_id}")
-            services.append(
-                ServiceContract(service["id"], service["version"], service["contract"])
-            )
+            services.append(ServiceContract(service["id"], service["version"], service["contract"]))
         policies[module_id] = ModulePolicy(module_id=module_id, services=tuple(services), **item)
     return value["builder_version"], policies
 
@@ -230,7 +231,7 @@ def build_backend(source: Path, output: Path, identity: SourceIdentity) -> Path:
     wheel_dir = output / "backend"
     wheel_dir.mkdir(parents=True)
     run(
-        ["uv", "build", "--wheel", "--clear", "--out-dir", str(wheel_dir)],
+        ["uv", "build", "--python", "3.12.14", "--wheel", "--clear", "--out-dir", str(wheel_dir)],
         cwd=source / "backend",
         env={"SOURCE_DATE_EPOCH": str(identity.epoch)},
     )
@@ -700,6 +701,7 @@ def orchestrate(
     output.mkdir(parents=True, exist_ok=True)
     first_source = output / "source"
     identity = prepare_checkout(policies[module_id], tag, first_source)
+    environment = collect_environment(first_source, host_root)
     second_source = output / "source-second"
     second_identity = prepare_checkout(policies[module_id], tag, second_source)
     if identity != second_identity:
@@ -709,6 +711,7 @@ def orchestrate(
     first_digest, second_digest = sha256(first), sha256(second)
     if first_digest != second_digest:
         raise BuilderError(f"non-reproducible builds: {first_digest} != {second_digest}")
+    check_candidate_history(identity, first_digest, builder_version)
     candidate_dir = output / "candidate"
     candidate_dir.mkdir()
     artifact = candidate_dir / first.name
@@ -731,8 +734,82 @@ def orchestrate(
         output, identity, first_digest, builder_version, run_id, planned_channel
     )
     candidate["registry_status"] = check_registry_immutability(identity, first_digest)
+    candidate["build_environment"] = environment
     (candidate_dir / "provenance.json").write_text(canonical_json(candidate), encoding="utf-8")
     return candidate
+
+
+def collect_environment(source: Path, host_root: Path) -> dict[str, Any]:
+    policy = json.loads((ROOT / "config/builder-environment.json").read_text())
+    versions = {
+        "python": platform.python_version(),
+        "uv": run(["uv", "--version"]).split()[1],
+        "node": run(["node", "--version"]).removeprefix("v"),
+    }
+    host_python = run(
+        [
+            str(host_root / "backend/.venv/bin/python"),
+            "-c",
+            "import platform; print(platform.python_version())",
+        ]
+    )
+    if host_python != policy["python"]:
+        raise BuilderError("Host Python does not match builder environment")
+    if (source / "frontend/package.json").exists():
+        versions["pnpm"] = run(["corepack", "pnpm", "--version"], cwd=source / "frontend")
+    for key, value in versions.items():
+        if policy[key] != value:
+            raise BuilderError(f"builder environment mismatch: {key} {value} != {policy[key]}")
+    return {
+        **policy,
+        **versions,
+        "host_commit": run(["git", "rev-parse", "HEAD"], cwd=host_root),
+        "builder_commit": builder_commit(),
+        "bundle_format_version": 1,
+        "zlib": zlib.ZLIB_RUNTIME_VERSION,
+        "os": platform.system(),
+        "architecture": platform.machine(),
+        "runner_image": os.environ.get("ImageVersion", "local"),  # noqa: SIM112
+        "lockfiles": {
+            str(p): sha256(source / p)
+            for p in (
+                Path("backend/uv.lock"),
+                Path("frontend/pnpm-lock.yaml"),
+            )
+            if (source / p).exists()
+        },
+    }
+
+
+def check_candidate_history(identity: SourceIdentity, digest: str, version: int) -> None:
+    """Compare reviewed and pending remote candidates before emitting any new candidate."""
+    path = f"candidates/{identity.policy.module_id}/{identity.version}/provenance.json"
+    records = []
+    if (ROOT / path).exists():
+        records.append(json.loads((ROOT / path).read_text()))
+    refs = ["refs/heads/main", f"refs/heads/automation/{identity.policy.module_id}-{identity.tag}"]
+    for ref in refs:
+        remote = run(["git", "ls-remote", "--heads", "origin", ref], cwd=ROOT)
+        if not remote:
+            continue
+        commit = remote.split()[0]
+        run(["git", "fetch", "--quiet", "--no-tags", "origin", commit], cwd=ROOT)
+        files = run(["git", "ls-tree", "--name-only", commit, "--", path], cwd=ROOT)
+        if files:
+            records.append(json.loads(run(["git", "show", f"{commit}:{path}"], cwd=ROOT)))
+    for record in records:
+        if (record.get("module_id"), record.get("version"), record.get("source_repository")) != (
+            identity.policy.module_id,
+            identity.version,
+            identity.policy.source_url,
+        ):
+            raise BuilderError("existing candidate has different immutable identity")
+        if (
+            record.get("source_commit"),
+            record.get("builder_version"),
+            record.get("bundle_sha256"),
+        ) != (identity.commit, version, digest):
+            raise BuilderError("existing candidate has different immutable provenance/digest")
 
 
 def main() -> None:
