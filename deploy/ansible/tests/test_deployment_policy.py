@@ -73,9 +73,7 @@ def test_role_structure_and_required_defaults() -> None:
     assert defaults["packages_registry_service_home"] == "/home/ocp-packages"
     assert defaults["packages_registry_release_retention"] >= 2
     assert defaults["packages_registry_uv_version"] == "0.12.5"
-    assert defaults["packages_registry_artifact_root"] == (
-        "{{ packages_registry_root }}/artifacts"
-    )
+    assert defaults["packages_registry_artifact_root"] == ("{{ packages_registry_root }}/artifacts")
 
 
 def test_immutable_release_is_built_before_atomic_activation() -> None:
@@ -110,9 +108,7 @@ def test_validation_gates_are_mandatory_except_test_suite() -> None:
     assert by_name["Run package registry release tests"]["when"] == (
         "packages_registry_run_tests | bool"
     )
-    release_test_command = by_name["Run package registry release tests"][
-        "ansible.builtin.command"
-    ]
+    release_test_command = by_name["Run package registry release tests"]["ansible.builtin.command"]
     assert release_test_command["argv"][-2:] == [
         "-m",
         "not repository_history",
@@ -166,9 +162,9 @@ def test_explicit_publish_playbook_derives_target_from_registry_metadata() -> No
         "ansible.builtin.assert"
     ]["that"]
     assert "registry_ref is match('^[0-9a-f]{40}$')" in assertions
-    publish_argv = by_name[
-        "Publish selected immutable artifact from reviewed Registry metadata"
-    ]["ansible.builtin.command"]["argv"]
+    publish_argv = by_name["Publish selected immutable artifact from reviewed Registry metadata"][
+        "ansible.builtin.command"
+    ]["argv"]
     assert "scripts/publish_artifacts.py" in publish_argv
     assert "--module" in publish_argv and "{{ module_id }}" in publish_argv
     assert "--version" in publish_argv and "{{ version }}" in publish_argv
@@ -211,9 +207,9 @@ def test_newly_published_artifacts_receive_public_header_and_digest_checks() -> 
     headers = by_name["Fetch public headers for newly published artifacts"]
     assert headers["ansible.builtin.uri"]["method"] == "HEAD"
     assert headers["loop"] == "{{ packages_registry_artifact_publication.published }}"
-    header_assertions = by_name[
-        "Require immutable public headers for newly published artifacts"
-    ]["ansible.builtin.assert"]["that"]
+    header_assertions = by_name["Require immutable public headers for newly published artifacts"][
+        "ansible.builtin.assert"
+    ]["that"]
     assert any("application/octet-stream" in assertion for assertion in header_assertions)
     assert any("immutable" in assertion for assertion in header_assertions)
     assert any("nosniff" in assertion for assertion in header_assertions)
@@ -242,12 +238,13 @@ def test_normal_deploy_self_provisions_pinned_web_runtime() -> None:
     deploy = yaml.safe_load(read(ANSIBLE / "playbooks" / "deploy.yml"))
     bootstrap_play = yaml.safe_load(bootstrap)
     assert defaults["packages_registry_node_version"] == "22.23.2"
-    assert defaults["packages_registry_nodesource_package_version"] == (
-        "22.23.2-1nodesource1"
-    )
+    assert defaults["packages_registry_nodesource_package_version"] == ("22.23.2-1nodesource1")
     assert defaults["packages_registry_corepack_version"] == "0.35.0"
     assert defaults["packages_registry_pnpm_version"] == "11.22.0"
-    assert deploy[0]["roles"][0]["role"] == "packages_registry_runtime"
+    deployment_block = deploy[0]["tasks"][2]["block"]
+    assert (
+        deployment_block[0]["ansible.builtin.include_role"]["name"] == "packages_registry_runtime"
+    )
     assert bootstrap_play[0]["roles"][0]["role"] == "packages_registry_runtime"
     assert "Require the existing NodeSource signing key" in runtime
     assert 'name: "nodejs={{ packages_registry_nodesource_package_version }}"' in runtime
@@ -276,23 +273,44 @@ def test_nginx_validation_smoke_rollback_and_retention_are_present() -> None:
     assert "Verify previous Registry v1 release after rollback" in tasks
     assert "https://127.0.0.1/index.json" in tasks
     assert "validate_certs: true" in tasks
-    assert "Select old inactive package registry releases by mtime" in tasks
-    assert "packages_registry_protected_release_paths" in tasks
+    assert "Select old inactive package registry releases by mtime" not in tasks
+    assert "Persist verified current predecessor for independent retention" in tasks
     assert "nginx" in handlers and "-t" in handlers
     assert handlers.index("Validate nginx configuration") < handlers.index("Reload nginx")
 
 
 def test_release_retention_cannot_prune_persistent_artifacts() -> None:
-    tasks = yaml.safe_load(read(ROLE / "tasks" / "main.yml"))
-    by_name = {task["name"]: task for task in tasks}
-    find_task = by_name["Find versioned package registry releases"]["ansible.builtin.find"]
-    prune_task = by_name["Prune old inactive package registry releases"][
-        "ansible.builtin.file"
-    ]
-    assert find_task["paths"] == "{{ packages_registry_releases_dir }}"
-    assert prune_task["path"] == "{{ item.path }}"
-    assert "packages_registry_artifact_root" not in str(find_task)
-    assert "packages_registry_artifact_root" not in str(prune_task)
+    tasks = read(ROLE / "tasks" / "main.yml")
+    assert "Prune old inactive package registry releases" not in tasks
+    assert "packages_registry_release_paths_to_prune" not in tasks
+    assert "include_tasks: cleanup.yml" not in tasks
+    service = read(ROLE / "templates/packages-registry-cleanup.service.j2")
+    assert "--release-root {{ packages_registry_releases_dir }}" in service
+    assert "--retention {{ packages_registry_release_retention }}" in service
+    assert "packages_registry_artifact_root" not in service
+    cleanup_tasks = read(ROLE / "tasks/cleanup.yml")
+    assert "no_block: true" in cleanup_tasks
+    assert "state: absent" not in cleanup_tasks
+    assert "tasks_from: cleanup" in read(ANSIBLE / "playbooks/cleanup.yml")
+
+
+def test_deploy_and_cleanup_share_exclusive_lock_and_timer_is_independent() -> None:
+    play = read(ANSIBLE / "playbooks/deploy.yml")
+    script = read(ROLE / "files/prune_releases.py")
+    assert "/var/lib/ocp-packages-maintenance/lock" in play
+    assert "/var/lib/ocp-packages-maintenance/lock" in script
+    assert play.index("Acquire exclusive") < play.index("Assemble and activate")
+    assert "always:" in play
+    timer = read(ROLE / "templates/packages-registry-cleanup.timer.j2")
+    assert "OnCalendar=daily" in timer
+    install = read(ROLE / "tasks/install_cleanup.yml")
+    assert "name: packages-registry-cleanup.timer" in install
+    assert "name: packages-registry-cleanup.service" not in install
+    tasks = read(ROLE / "tasks/main.yml")
+    assert tasks.index("Stream and verify public SHA") < tasks.index("Persist verified current")
+    assert tasks.index("Persist verified current") < tasks.index("  rescue:")
+    assert "ignore_errors" not in tasks
+    assert "ignore_unreachable" not in tasks
 
 
 def test_example_inventory_contains_no_host_or_secret() -> None:

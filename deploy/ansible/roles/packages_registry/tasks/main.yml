@@ -561,6 +561,9 @@
   changed_when: false
   when: packages_registry_manage_nginx | bool
 
+- name: Install independent release retention maintenance
+  ansible.builtin.include_tasks: install_cleanup.yml
+
 - name: Activate package registry release with rollback protection
   block:
     - name: Switch current symlink to validated SHA release atomically
@@ -751,6 +754,15 @@
       when:
         - packages_registry_manage_nginx | bool
         - packages_registry_run_external_smoke_check | bool
+    - name: Persist verified current predecessor for independent retention
+      ansible.builtin.file:
+        src: "{{ packages_registry_previous_release_path }}"
+        dest: "{{ packages_registry_root }}/previous"
+        state: link
+        force: false
+      when:
+        - packages_registry_previous_release_path | length > 0
+        - packages_registry_previous_release_path != packages_registry_release_path
   rescue:
     - name: Preserve original package registry deployment failure
       ansible.builtin.set_fact:
@@ -849,39 +861,6 @@
           {{ ('Rollback to ' ~ packages_registry_previous_release_path ~ ' succeeded.')
              if packages_registry_previous_release_path | length > 0
              else 'The failed first-deploy current symlink was removed.' }}
-
-- name: Define protected release paths for retention
-  ansible.builtin.set_fact:
-    packages_registry_protected_release_paths: >-
-      {{ [packages_registry_release_path]
-         + ([packages_registry_previous_release_path]
-            if packages_registry_previous_release_path | length > 0
-               and packages_registry_previous_release_path != packages_registry_release_path
-            else []) }}
-
-- name: Find versioned package registry releases
-  ansible.builtin.find:
-    paths: "{{ packages_registry_releases_dir }}"
-    file_type: directory
-    recurse: false
-  register: packages_registry_release_directories
-
-- name: Select old inactive package registry releases by mtime
-  ansible.builtin.set_fact:
-    packages_registry_release_paths_to_prune: >-
-      {{ ((packages_registry_release_directories.files
-           | rejectattr('path', 'in', packages_registry_protected_release_paths)
-           | sort(attribute='mtime', reverse=true))
-          [(packages_registry_release_retention | int
-            - packages_registry_protected_release_paths | length):]) }}
-
-- name: Prune old inactive package registry releases
-  ansible.builtin.file:
-    path: "{{ item.path }}"
-    state: absent
-  loop: "{{ packages_registry_release_paths_to_prune }}"
-  loop_control:
-    label: "{{ item.path }}"
 
 - name: Report deployed package registry revision
   ansible.builtin.debug:

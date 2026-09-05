@@ -60,6 +60,30 @@
       changed_when: true
       when: packages_registry_existing_git.stat.isdir | default(false)
 
-  roles:
-    - role: packages_registry_runtime
-    - role: packages_registry
+  tasks:
+    - name: Ensure persistent maintenance lock parent exists
+      ansible.builtin.file:
+        path: /var/lib/ocp-packages-maintenance
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+
+    - name: Acquire exclusive deployment and retention lock
+      ansible.builtin.command:
+        argv: [mkdir, --mode=0700, /var/lib/ocp-packages-maintenance/lock]
+      changed_when: true
+
+    - name: Deploy under exclusive retention lock
+      block:
+        - name: Prepare runtime
+          ansible.builtin.include_role:
+            name: packages_registry_runtime
+        - name: Assemble and activate verified release
+          ansible.builtin.include_role:
+            name: packages_registry
+      always:
+        - name: Release deployment and retention lock
+          ansible.builtin.command:
+            argv: [rmdir, /var/lib/ocp-packages-maintenance/lock]
+          changed_when: true

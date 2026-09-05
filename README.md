@@ -158,6 +158,10 @@ Rollback and release retention never remove immutable artifacts. The separate
 publication playbook remains available for recovery and operations, but normal
 reviewed merges require no manual publication step.
 
+Application deployment ends after health/public verification. Release retention is
+separate daily systemd maintenance, not part of the rollout. See the
+[cleanup entry point and safeguards](deploy/ansible/README.md#independent-application-release-retention).
+
 ## Contributing
 
 Contributions are welcome, especially around:

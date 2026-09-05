@@ -1,0 +1,58 @@
+---
+- name: Require canonical separate release maintenance layout
+  ansible.builtin.assert:
+    that:
+      - packages_registry_releases_dir == packages_registry_root ~ '/releases'
+      - packages_registry_current_path == packages_registry_root ~ '/current'
+      - packages_registry_artifact_root == packages_registry_root ~ '/artifacts'
+      - packages_registry_repo_path == packages_registry_root ~ '/repo'
+      - packages_registry_root is match('^/[a-zA-Z0-9_/-]+$')
+      - "'..' not in packages_registry_root.split('/')"
+      - packages_registry_release_retention | int >= 2
+
+- name: Ensure local maintenance executable directory exists
+  ansible.builtin.file:
+    path: /usr/local/libexec
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Ensure persistent maintenance lock parent exists
+  ansible.builtin.file:
+    path: /var/lib/ocp-packages-maintenance
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Install safe local release cleanup executable
+  ansible.builtin.copy:
+    src: prune_releases.py
+    dest: /usr/local/libexec/ocp-packages-prune-releases
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install independent cleanup service and timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - packages-registry-cleanup.service
+    - packages-registry-cleanup.timer
+  register: packages_registry_cleanup_units
+
+- name: Reload systemd for cleanup unit changes
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: packages_registry_cleanup_units.changed
+
+- name: Enable daily retention timer without running cleanup in deploy
+  ansible.builtin.systemd_service:
+    name: packages-registry-cleanup.timer
+    enabled: true
+    state: started
