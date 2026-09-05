@@ -8,8 +8,11 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Thread
 
+import pytest
 from jinja2 import Environment, StrictUndefined
 
 from scripts.artifact_store import FilesystemArtifactStore
@@ -26,7 +29,8 @@ def free_port():
         return sock.getsockname()[1]
 
 
-def test_real_nginx_serves_only_complete_immutable_artifacts(tmp_path):
+@pytest.mark.parametrize("db_routing", [False, True])
+def test_real_nginx_serves_only_complete_immutable_artifacts(tmp_path, db_routing):
     nginx = shutil.which("nginx")
     assert nginx, "Install nginx for the explicit Ansible/HTTP integration suite"
     openssl = shutil.which("openssl")
@@ -61,6 +65,31 @@ def test_real_nginx_serves_only_complete_immutable_artifacts(tmp_path):
         check=True,
         capture_output=True,
     )
+    backend_requests = []
+    backend_status = [200]
+
+    class Backend(BaseHTTPRequestHandler):
+        def do_GET(self):
+            backend_requests.append(self.path)
+            conditional = self.headers.get("If-None-Match") == '"db-fixture"'
+            self.send_response(304 if conditional else backend_status[0])
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("ETag", '"db-fixture"')
+            self.end_headers()
+            if not conditional:
+                self.wfile.write(b'{"source":"database"}\n')
+
+        def log_message(self, *_args):
+            pass
+
+    backend = ThreadingHTTPServer(("127.0.0.1", 0), Backend)
+    thread = Thread(target=backend.serve_forever, daemon=True)
+    thread.start()
+    static = tmp_path / "current/dist"
+    (static / "modules").mkdir(parents=True)
+    for path in ("index.json", "modules/statistics.json"):
+        (static / path).write_bytes(b'{"source":"frozen-static"}\n')
     http_port, https_port = free_port(), free_port()
     rendered = (
         Environment(undefined=StrictUndefined)
@@ -71,7 +100,8 @@ def test_real_nginx_serves_only_complete_immutable_artifacts(tmp_path):
             packages_registry_certificate_name="localhost",
             packages_registry_current_path=str(tmp_path / "current"),
             packages_registry_artifact_root=str(store.root),
-            packages_registry_backend_port=free_port(),
+            packages_registry_backend_port=backend.server_port,
+            packages_registry_v1_db_compat_routing_enabled=db_routing,
             packages_registry_frontend_port=free_port(),
         )
     )
@@ -96,10 +126,14 @@ def test_real_nginx_serves_only_complete_immutable_artifacts(tmp_path):
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE  # This test's generated certificate, loopback only.
 
-    def get(path):
+    def get(path, headers=None):
         try:
             with urllib.request.urlopen(
-                f"https://127.0.0.1:{https_port}{path}", context=context, timeout=2
+                urllib.request.Request(
+                    f"https://127.0.0.1:{https_port}{path}", headers=headers or {}
+                ),
+                context=context,
+                timeout=2,
             ) as response:
                 return response.status, response.headers, response.read()
         except urllib.error.HTTPError as error:
@@ -120,6 +154,23 @@ def test_real_nginx_serves_only_complete_immutable_artifacts(tmp_path):
                 if time.monotonic() >= deadline or process.poll() is not None:
                     raise
                 time.sleep(0.02)
+        assert backend_requests == []  # .ocp must never reach the metadata backend.
+        for metadata_path in ("/index.json", "/modules/statistics.json"):
+            code, meta_headers, payload = get(metadata_path)
+            assert code == 200
+            assert payload == (
+                b'{"source":"database"}\n' if db_routing else b'{"source":"frozen-static"}\n'
+            )
+            assert meta_headers["Cache-Control"] == (
+                "no-cache" if db_routing else "public, max-age=300"
+            )
+            if db_routing:
+                assert get(metadata_path, {"If-None-Match": '"db-fixture"'})[0] == 304
+                backend_status[0] = 503
+                assert get(metadata_path)[0] == 503  # Static file exists: no fallback.
+                backend_status[0] = 200
+        if not db_routing:
+            assert backend_requests == []
         assert status == 200
         assert body == source.read_bytes()
         assert headers.get_content_type() == "application/octet-stream"
@@ -140,3 +191,6 @@ def test_real_nginx_serves_only_complete_immutable_artifacts(tmp_path):
     finally:
         process.terminate()
         process.wait(timeout=5)
+        backend.shutdown()
+        backend.server_close()
+        thread.join(timeout=5)

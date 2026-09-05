@@ -7,7 +7,7 @@ from sqlalchemy import func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from scripts.registry import canonical_module, validate_module
+from scripts.registry import validate_module
 from web.backend.app.db.models import (
     Artifact,
     Base,
@@ -42,8 +42,9 @@ class RegistryDatabaseRepository:
             raise RegistryConflict(f"Conflicting {model.__tablename__} record: {dict(key)}")
         return record
 
-    def module_structure(self, module: Module) -> dict[str, Any]:
-        publisher = self.session.get(Publisher, module.publisher_id)
+    def module_structure(self, module: Module, publisher=None) -> dict[str, Any]:
+        if publisher is None:
+            publisher = self.session.get(Publisher, module.publisher_id)
         result = {
             "schema_version": 1,
             "id": module.id,
@@ -58,13 +59,17 @@ class RegistryDatabaseRepository:
                 result[name] = value
         return result
 
-    def release_structure(self, version: ModuleVersion) -> dict[str, Any]:
-        artifact = self.session.get(Artifact, version.artifact_id)
-        dependencies = self.session.scalars(
-            select(ModuleDependency).filter_by(
-                owner_module_id=version.module_id, owner_version=version.version
-            )
-        ).all()
+    def release_structure(
+        self, version: ModuleVersion, artifact=None, dependencies=None
+    ) -> dict[str, Any]:
+        if artifact is None:
+            artifact = self.session.get(Artifact, version.artifact_id)
+        if dependencies is None:
+            dependencies = self.session.scalars(
+                select(ModuleDependency).filter_by(
+                    owner_module_id=version.module_id, owner_version=version.version
+                )
+            ).all()
         result = {
             "version": version.version,
             "channel": version.historical_publication_channel,
@@ -176,24 +181,37 @@ class RegistryDatabaseRepository:
             "environment_json": None,
         }
 
-    def project_v1(self) -> list[dict[str, Any]]:
-        """Internal parity projection, not a public compatibility API."""
-        result = []
-        for module in self.session.scalars(select(Module).order_by(Module.id)):
-            versions = self.session.scalars(
-                select(ModuleVersion)
-                .filter_by(module_id=module.id)
-                .order_by(ModuleVersion.historical_order)
-            )
-            result.append(
-                canonical_module(
-                    {
-                        **self.module_structure(module),
-                        "versions": [self.release_structure(version) for version in versions],
-                    }
+    def project_v1(self, module_id: str | None = None) -> list[dict[str, Any]]:
+        """Shared import/HTTP projection in three batched queries; preserve stored order.
+
+        Only modules with published versions participate. Candidate provenance and
+        unattached artifacts never become releases through this projection.
+        """
+        modules = self.module_candidates(module_id=module_id)
+        ids = [module.id for module, _publisher in modules]
+        releases: dict[str, list[dict[str, Any]]] = {key: [] for key in ids}
+        dependencies: dict[tuple[str, str], list[ModuleDependency]] = {}
+        for dependency in self.session.scalars(
+            select(ModuleDependency).where(ModuleDependency.owner_module_id.in_(ids))
+        ):
+            dependencies.setdefault(
+                (dependency.owner_module_id, dependency.owner_version), []
+            ).append(dependency)
+        for version, artifact in self.session.execute(
+            select(ModuleVersion, Artifact)
+            .join(Artifact, ModuleVersion.artifact_id == Artifact.id)
+            .where(ModuleVersion.module_id.in_(ids))
+            .order_by(ModuleVersion.module_id, ModuleVersion.historical_order)
+        ):
+            releases[version.module_id].append(
+                self.release_structure(
+                    version, artifact, dependencies.get((version.module_id, version.version), [])
                 )
             )
-        return result
+        return [
+            {**self.module_structure(module, publisher), "versions": releases[module.id]}
+            for module, publisher in sorted(modules, key=lambda row: row[0].id)
+        ]
 
     def channel_targets(
         self, module_ids: list[str] | None = None
@@ -230,7 +248,6 @@ class RegistryDatabaseRepository:
                 ModuleChannel,
             )
         }
-
 
     def module_candidates(self, *, module_id=None, publisher=None, classification=None, q=None):
         """Published-only candidates; no joins to unattached candidate evidence."""

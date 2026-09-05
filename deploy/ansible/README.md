@@ -345,3 +345,11 @@ filesystem backend, independent trusted local publication, HTTP symlink protecti
 publisher/reader permissions and backup/restore. The existing mirror CLI/playbooks
 continue to operate; #46 adds no production candidate promotion. The Ansible test
 suite now also requires `nginx` and `openssl` for isolated loopback HTTP tests.
+
+Registry v1 DB compatibility has separate backend and public-routing booleans,
+`packages_registry_v1_db_compat_enabled` and
+`packages_registry_v1_db_compat_routing_enabled`, both defaulting to false.
+The backend uses an externally provisioned private environment file; a DB URL alone
+cannot switch public authority. Follow the
+[compatibility cutover runbook](../../docs/registry-v1-db-compatibility.md) before
+setting the routing flag. Merge/application deploy is not read or writer cutover.

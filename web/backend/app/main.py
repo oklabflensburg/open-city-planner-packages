@@ -119,13 +119,20 @@ def publisher(publisher_id: str, repo: Repository) -> PublisherDetail:
     return result
 
 
-def create_app(*, v2_enabled: bool | None = None, engine_factory=None) -> FastAPI:
+def create_app(
+    *, v2_enabled: bool | None = None, v1_compat_enabled: bool | None = None, engine_factory=None
+) -> FastAPI:
     """Keep the production JSON app independent of optional PostgreSQL dependencies."""
     if v2_enabled is None:
         value = os.environ.get("PACKAGES_REGISTRY_V2_API_ENABLED", "false").lower()
         if value not in {"true", "false"}:
             raise ValueError("PACKAGES_REGISTRY_V2_API_ENABLED must be true or false")
         v2_enabled = value == "true"
+    if v1_compat_enabled is None:
+        value = os.environ.get("PACKAGES_REGISTRY_V1_DB_COMPAT_ENABLED", "false").lower()
+        if value not in {"true", "false"}:
+            raise ValueError("PACKAGES_REGISTRY_V1_DB_COMPAT_ENABLED must be true or false")
+        v1_compat_enabled = value == "true"
     application = FastAPI(
         title="Open City Planner Packages API",
         version="1.0.0",
@@ -139,10 +146,18 @@ def create_app(*, v2_enabled: bool | None = None, engine_factory=None) -> FastAP
         allow_headers=["*"],
         expose_headers=["ETag"],
     )
+    if v2_enabled or v1_compat_enabled:
+        from web.backend.app.api.registry_v2 import configure_database
+
+        configure_database(application, engine_factory=engine_factory)
+    if v1_compat_enabled:
+        from web.backend.app.api.registry_v1 import configure_compatibility
+
+        configure_compatibility(application)
     if v2_enabled:
         from web.backend.app.api.registry_v2 import configure
 
-        configure(application, router, engine_factory=engine_factory)
+        configure(application, router)
     else:
         application.include_router(router)
 
