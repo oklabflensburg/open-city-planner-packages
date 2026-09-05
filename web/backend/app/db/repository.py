@@ -3,7 +3,7 @@
 from collections.abc import Mapping
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -195,7 +195,9 @@ class RegistryDatabaseRepository:
             )
         return result
 
-    def channel_targets(self) -> dict[str, dict[str, dict[str, str]]]:
+    def channel_targets(
+        self, module_ids: list[str] | None = None
+    ) -> dict[str, dict[str, dict[str, str]]]:
         result: dict[str, dict[str, dict[str, str]]] = {}
         rows = self.session.execute(
             select(ModuleChannel, Artifact.digest)
@@ -205,6 +207,7 @@ class RegistryDatabaseRepository:
                 & (ModuleChannel.version == ModuleVersion.version),
             )
             .join(Artifact, ModuleVersion.artifact_id == Artifact.id)
+            .where(ModuleChannel.module_id.in_(module_ids) if module_ids is not None else True)
             .order_by(ModuleChannel.module_id, ModuleChannel.channel)
         )
         for channel, digest in rows:
@@ -227,3 +230,88 @@ class RegistryDatabaseRepository:
                 ModuleChannel,
             )
         }
+
+
+    def module_candidates(self, *, module_id=None, publisher=None, classification=None, q=None):
+        """Published-only candidates; no joins to unattached candidate evidence."""
+        query = (
+            select(Module, Publisher)
+            .join(Publisher)
+            .where(
+                select(ModuleVersion.module_id).where(ModuleVersion.module_id == Module.id).exists()
+            )
+        )
+        for column, value in (
+            (Module.id, module_id),
+            (Module.publisher_id, publisher),
+            (Module.classification, classification),
+        ):
+            if value is not None:
+                query = query.where(column == value)
+        if q is not None:
+            # Treat user wildcard characters literally; values remain bound parameters.
+            pattern = "%" + q.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%"
+            query = query.where(
+                or_(
+                    *(
+                        column.ilike(pattern, escape="!")
+                        for column in (
+                            Module.id,
+                            Module.name,
+                            Module.description,
+                            Publisher.name,
+                        )
+                    )
+                )
+            )
+        return self.session.execute(query.order_by(Module.name, Module.id)).all()
+
+    def version_summaries(self, module_ids):
+        return self.session.execute(
+            select(
+                ModuleVersion.module_id,
+                ModuleVersion.version,
+                ModuleVersion.host_compatibility,
+                ModuleVersion.sdk_compatibility,
+            ).where(ModuleVersion.module_id.in_(module_ids))
+        ).all()
+
+    def published_versions(self, module_id, version=None):
+        query = (
+            select(ModuleVersion, Artifact, Module.source_repository, BuildProvenance)
+            .join(Artifact, ModuleVersion.artifact_id == Artifact.id)
+            .join(Module, ModuleVersion.module_id == Module.id)
+            .outerjoin(BuildProvenance, ModuleVersion.build_provenance_id == BuildProvenance.id)
+            .where(ModuleVersion.module_id == module_id)
+        )
+        if version is not None:
+            query = query.where(ModuleVersion.version == version)
+        return self.session.execute(query).all()
+
+    def version_dependencies(self, module_id, versions):
+        return self.session.scalars(
+            select(ModuleDependency)
+            .where(
+                ModuleDependency.owner_module_id == module_id,
+                ModuleDependency.owner_version.in_(versions),
+            )
+            .order_by(ModuleDependency.dependency_module_id)
+        ).all()
+
+    def published_publishers(self, publisher_id=None):
+        query = (
+            select(Publisher.id, Publisher.name, func.count(Module.id).label("module_count"))
+            .join(Module, Module.publisher_id == Publisher.id)
+            .where(
+                select(ModuleVersion.module_id).where(ModuleVersion.module_id == Module.id).exists()
+            )
+            .group_by(Publisher.id, Publisher.name)
+            .order_by(Publisher.name, Publisher.id)
+        )
+        if publisher_id is not None:
+            query = query.where(Publisher.id == publisher_id)
+        return self.session.execute(query).all()
+
+    def schema_revision(self):
+        revisions = self.session.scalars(text("SELECT version_num FROM alembic_version")).all()
+        return revisions[0] if len(revisions) == 1 else None

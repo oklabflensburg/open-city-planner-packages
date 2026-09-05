@@ -74,6 +74,14 @@ the #45 data model and lossless v1 import without changing production reads.
 The [immutable Artifact Store](docs/artifact-store.md) provides a shared filesystem
 backend for the existing mirror and an independent trusted local publisher.
 
+## Registry Service v2 Read API
+
+The opt-in [PostgreSQL-backed read API](docs/registry-api-v2.md) adds module,
+version, channel, publisher and search DTOs for shadow testing. Enable it with
+`PACKAGES_REGISTRY_V2_API_ENABLED=true` and the optional `registry-db` dependencies.
+Existing package consumers retain their contracts. **Registry v1 remains production
+authority**; this does not deploy a DB, switch runtime reads or enable writes.
+
 ## Why a static registry today?
 
 The package registry intentionally uses reviewable files and deterministic output instead of a dynamic marketplace service. This makes module publication easier to audit and keeps the trust boundary explicit.
