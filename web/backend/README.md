@@ -5,7 +5,10 @@ loads `registry/modules/*.json` through the existing Registry loader and builds
 a deterministic in-memory search index. `app/models.py` defines the Pydantic v2
 API contracts.
 
-The service has no database and no write route. Start it from the repository
+The running service still reads JSON and has no write route. Optional
+[Registry v2 shadow database tooling](../../docs/registry-shadow-database.md) provides
+PostgreSQL models, migrations and a separate v1 importer; it does not change API
+data access. Start the API from the repository
 root with:
 
 ```bash

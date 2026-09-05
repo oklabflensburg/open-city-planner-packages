@@ -69,6 +69,8 @@ architecture for [#36](https://github.com/oklabflensburg/open-city-planner-packa
 compatibility → #49 promotion, with #50 UI consuming the API. It includes the
 current-system audit, source-of-truth matrix and gated migration plan. Registry v1
 remains authoritative until the documented cutover; this is not a completed migration.
+The optional [PostgreSQL shadow workflow](docs/registry-shadow-database.md) implements
+the #45 data model and lossless v1 import without changing production reads.
 
 ## Why a static registry today?
 
