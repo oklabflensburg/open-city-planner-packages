@@ -1,0 +1,23 @@
+{
+  "artifact_candidate": "github-actions://run/33946623199/statistics-0.4.0",
+  "builder_commit": "e406fb2267e7e28eaba2f7e8384a876e9e10a2f8",
+  "builder_version": 1,
+  "bundle_format_version": 1,
+  "bundle_sha256": "6bec701141f8c77dff4c4054ae095be31efe262f9cc3eab6414f68be57ae5423",
+  "classification": "first-party",
+  "host_contract": "passed",
+  "module_id": "statistics",
+  "planned_channel": "stable",
+  "registry_status": "new",
+  "reproducible": true,
+  "requires": {
+    "host": ">=0.2.0,<1.0.0",
+    "modules": {},
+    "sdk": ">=1.15.0,<2.0.0"
+  },
+  "schema_version": 1,
+  "source_commit": "3cfce04b859e5f27481f5665adc4665ddc935dac",
+  "source_repository": "https://github.com/oklabflensburg/ocp-module-statistics",
+  "source_tag": "v0.4.0",
+  "version": "0.4.0"
+}
