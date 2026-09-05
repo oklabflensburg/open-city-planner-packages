@@ -4,10 +4,8 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
-import stat
 import sys
 import tempfile
 from collections.abc import Callable
@@ -16,6 +14,15 @@ from pathlib import Path
 from typing import Any
 
 if __package__:
+    from .artifact_store import (
+        STATUS_ALREADY_PRESENT,
+        STATUS_PUBLISHED,
+        ArtifactNotFound,
+        ArtifactStoreError,
+        FilesystemArtifactStore,
+        canonical_artifact_relative_path,
+        canonical_public_artifact_url,
+    )
     from .registry import (
         CANONICAL_REGISTRY_HOST,
         RegistryValidationError,
@@ -37,6 +44,15 @@ if __package__:
         validate_host_verifier_checkout,
     )
 else:
+    from artifact_store import (
+        STATUS_ALREADY_PRESENT,
+        STATUS_PUBLISHED,
+        ArtifactNotFound,
+        ArtifactStoreError,
+        FilesystemArtifactStore,
+        canonical_artifact_relative_path,
+        canonical_public_artifact_url,
+    )
     from verify_artifacts import (
         DEFAULT_TIMEOUT,
         MAX_ARTIFACT_BYTES,
@@ -60,14 +76,8 @@ else:
     )
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-FILE_MODE = 0o644
-DIRECTORY_MODE = 0o755
-STATUS_PUBLISHED = "published"
-STATUS_ALREADY_PRESENT = "already-present"
-
-
-class ArtifactPublishingError(RuntimeError):
-    """Raised when an artifact cannot be published without weakening immutability."""
+# Preserve the established mirror exception interface while sharing the storage core.
+ArtifactPublishingError = ArtifactStoreError
 
 
 @dataclass(frozen=True)
@@ -87,9 +97,7 @@ class BulkPublishResult:
 
     @property
     def already_present(self) -> tuple[PublishResult, ...]:
-        return tuple(
-            result for result in self.results if result.status == STATUS_ALREADY_PRESENT
-        )
+        return tuple(result for result in self.results if result.status == STATUS_ALREADY_PRESENT)
 
 
 def _candidate_from_release(module: dict[str, Any], release: dict[str, Any]) -> ReleaseCandidate:
@@ -105,9 +113,7 @@ def _candidate_from_release(module: dict[str, Any], release: dict[str, Any]) -> 
     return candidate
 
 
-def select_release(
-    registry_root: Path, module_id: str, version: str
-) -> ReleaseCandidate:
+def select_release(registry_root: Path, module_id: str, version: str) -> ReleaseCandidate:
     """Select one release only after Registry v1 validates the complete source."""
 
     canonical_id = validate_module_id(module_id, "--module")
@@ -136,87 +142,6 @@ def select_all_releases(registry_root: Path) -> list[ReleaseCandidate]:
         for release in module["versions"]
     ]
     return sorted(candidates, key=lambda item: (item.module_id, semver_key(item.version)))
-
-
-def canonical_artifact_relative_path(module_id: str, version: str) -> Path:
-    """Derive the only public mirror path from canonical Registry v1 identity."""
-
-    canonical_id = validate_module_id(module_id)
-    canonical_version = validate_semver(version)
-    return (
-        Path("modules")
-        / canonical_id
-        / canonical_version
-        / f"{canonical_id}-{canonical_version}.ocp"
-    )
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        while chunk := source.read(1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _ensure_publish_directory(artifact_root: Path, relative_parent: Path) -> Path:
-    if not artifact_root.is_absolute():
-        raise ArtifactPublishingError("artifact root must be an absolute path")
-    artifact_root.mkdir(parents=True, exist_ok=True, mode=DIRECTORY_MODE)
-    if artifact_root.is_symlink() or not artifact_root.is_dir():
-        raise ArtifactPublishingError("artifact root must be a real directory")
-    os.chmod(artifact_root, DIRECTORY_MODE)
-    root = artifact_root.resolve(strict=True)
-    current = root
-    for component in relative_parent.parts:
-        current = current / component
-        if current.is_symlink():
-            raise ArtifactPublishingError("artifact path must not contain symlinks")
-        current.mkdir(exist_ok=True, mode=DIRECTORY_MODE)
-        if current.is_symlink() or not current.is_dir():
-            raise ArtifactPublishingError("artifact path must contain only directories")
-        os.chmod(current, DIRECTORY_MODE)
-    if not current.resolve(strict=True).is_relative_to(root):
-        raise ArtifactPublishingError("artifact target escapes the configured root")
-    return current
-
-
-def _existing_status(target: Path, expected_sha256: str) -> str | None:
-    try:
-        metadata = target.lstat()
-    except FileNotFoundError:
-        return None
-    if not stat.S_ISREG(metadata.st_mode):
-        raise ArtifactPublishingError("existing artifact target is not a regular file")
-    actual_sha256 = sha256_file(target)
-    if actual_sha256 != expected_sha256:
-        raise ArtifactPublishingError(
-            "existing artifact SHA-256 does not match Registry metadata; refusing overwrite"
-        )
-    return STATUS_ALREADY_PRESENT
-
-
-def _new_partial_path(parent: Path, filename: str) -> Path:
-    descriptor, raw_path = tempfile.mkstemp(
-        prefix=f".{filename}.", suffix=".partial", dir=parent
-    )
-    os.close(descriptor)
-    partial = Path(raw_path)
-    partial.unlink()
-    return partial
-
-
-def _sync_file(path: Path) -> None:
-    with path.open("rb") as artifact:
-        os.fsync(artifact.fileno())
-
-
-def _sync_directory(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
 
 
 def _verify_partial_artifact(
@@ -255,47 +180,46 @@ def publish_candidate(
     """Download, validate, and atomically publish one candidate without overwrite."""
 
     source = validate_candidate_url(candidate)
+    store = FilesystemArtifactStore(artifact_root)
     relative = canonical_artifact_relative_path(candidate.module_id, candidate.version)
-    parent = _ensure_publish_directory(artifact_root, relative.parent)
-    target = parent / relative.name
-    existing = _existing_status(target, candidate.expected_sha256)
-    if existing is not None:
-        return PublishResult(candidate, target, existing)
+    target = artifact_root / relative
+    try:
+        store.verify(candidate.module_id, candidate.version, candidate.expected_sha256)
+    except ArtifactNotFound:
+        pass
+    else:
+        # Reuse the same durable no-op path after a previous post-link failure.
+        result = store.publish(
+            candidate.module_id, candidate.version, target, candidate.expected_sha256
+        )
+        return PublishResult(candidate, target, result.status)
 
     if source.hostname == CANONICAL_REGISTRY_HOST:
         raise ArtifactPublishingError(
             f"{candidate.identity}: canonical mirror metadata references a missing local artifact"
         )
-
     if host_verifier_root is not None:
         validate_checkout(host_verifier_root)
-
-    partial = _new_partial_path(parent, relative.name)
-    try:
-        actual_sha256 = downloader(candidate, partial, timeout, max_bytes)
-        if actual_sha256 != candidate.expected_sha256:
-            raise ArtifactPublishingError(
-                f"{candidate.identity}: downloaded SHA-256 does not match Registry metadata"
-            )
-        if host_verifier_root is not None:
-            _verify_partial_artifact(candidate, partial, host_verifier_root, verifier)
-        os.chmod(partial, FILE_MODE)
-        _sync_file(partial)
+    # Intake stays private and outside HTTP serving. The storage core makes its own
+    # same-filesystem copy, independently hashes it and performs the only final link.
+    with tempfile.TemporaryDirectory(prefix="ocp-mirror-intake-") as temporary:
+        partial = Path(temporary) / f".{relative.name}.download.partial"
         try:
-            os.link(partial, target)
-        except FileExistsError as exc:
-            status = _existing_status(target, candidate.expected_sha256)
-            if status is None:  # pragma: no cover - target disappeared during the race
+            actual_sha256 = downloader(candidate, partial, timeout, max_bytes)
+            if actual_sha256 != candidate.expected_sha256:
                 raise ArtifactPublishingError(
-                    "artifact publication raced with target removal"
-                ) from exc
-            return PublishResult(candidate, target, status)
-        _sync_directory(parent)
-        return PublishResult(candidate, target, STATUS_PUBLISHED)
-    except (ArtifactVerificationError, OSError) as exc:
-        raise ArtifactPublishingError(str(exc)) from exc
-    finally:
-        partial.unlink(missing_ok=True)
+                    f"{candidate.identity}: downloaded SHA-256 does not match Registry metadata"
+                )
+            if host_verifier_root is not None:
+                _verify_partial_artifact(candidate, partial, host_verifier_root, verifier)
+            result = store.publish(
+                candidate.module_id, candidate.version, partial, candidate.expected_sha256
+            )
+            return PublishResult(candidate, target, result.status)
+        except ArtifactVerificationError as exc:
+            raise ArtifactPublishingError(str(exc)) from exc
+        except OSError:
+            raise ArtifactPublishingError("Artifact intake failed") from None
 
 
 def publish_from_registry(
@@ -325,11 +249,6 @@ def publish_all_from_registry(
                 raise
             raise ArtifactPublishingError(f"{candidate.identity}: {exc}") from exc
     return BulkPublishResult(tuple(results))
-
-
-def canonical_public_artifact_url(module_id: str, version: str) -> str:
-    relative = canonical_artifact_relative_path(module_id, version)
-    return f"https://{CANONICAL_REGISTRY_HOST}/{relative.as_posix()}"
 
 
 def verify_public_release(

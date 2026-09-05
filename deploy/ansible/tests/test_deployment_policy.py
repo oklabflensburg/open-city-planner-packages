@@ -342,3 +342,15 @@ def test_deployment_avoids_unrequested_stateful_infrastructure() -> None:
     )
     for value in forbidden:
         assert value not in deployment
+
+
+def test_artifact_route_rejects_symlinks_and_cannot_serve_staging() -> None:
+    nginx = render_nginx()
+    route = nginx.split("alias /opt/registry/artifacts/modules/$1/$2/$1-$2.ocp;")[1].split("}")[0]
+    assert "disable_symlinks on;" in route
+    assert 'application/octet-stream' in route
+    assert 'public, max-age=31536000, immutable' in route
+    assert 'nosniff' in route
+    assert 'autoindex off;' in nginx
+    assert '/.staging' not in nginx
+    assert 'location ~ /\\.' in nginx

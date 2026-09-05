@@ -205,6 +205,7 @@ def test_atomic_no_clobber_wins_publication_race(tmp_path: Path) -> None:
     target = root / canonical_artifact_relative_path("analysis-areas", "1.0.0")
 
     def racing_verifier(release, artifact, host_root, state_root):
+        target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(b"concurrent publisher bytes")
 
     with pytest.raises(ArtifactPublishingError, match="refusing overwrite"):
@@ -500,3 +501,13 @@ def test_bulk_output_is_machine_readable_and_reports_summary(
             "status": "published",
         }
     ]
+
+
+def test_mirror_rehashes_bytes_even_if_downloader_claims_expected_digest(tmp_path):
+    def lying_downloader(release, destination, timeout, max_bytes):
+        destination.write_bytes(b"not the reviewed bytes")
+        return PAYLOAD_SHA256
+    root = tmp_path / "artifacts"
+    with pytest.raises(ArtifactPublishingError, match="Source SHA"):
+        publish_candidate(candidate(), root, downloader=lying_downloader)
+    assert not (root / canonical_artifact_relative_path("analysis-areas", "1.0.0")).exists()

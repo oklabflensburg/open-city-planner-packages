@@ -112,3 +112,7 @@ recovery procedure; the self-mirror URL is never treated as a bootstrap source.
 
 Manual artifact publication is a recovery tool. Normal reviewed Registry
 deployments publish missing immutable artifacts automatically.
+
+The [Artifact Store interface and trusted local CLI](artifact-store.md) now share
+the mirror's storage safety core. The CLI can publish reviewed local bytes without
+an application deploy; it does not promote Registry metadata.

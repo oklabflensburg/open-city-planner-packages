@@ -138,3 +138,19 @@ def test_cli_lock_and_failure_reporting(tree, tmp_path, monkeypatch, capsys):
     assert cleanup.main() == 1
     assert "failed" in capsys.readouterr().err
     assert not lock.exists()
+
+
+def test_published_store_survives_real_application_pruning(tree, tmp_path):
+    import hashlib
+
+    from scripts.artifact_store import FilesystemArtifactStore
+
+    release_root, releases = tree
+    source = tmp_path / "reviewed.ocp"
+    source.write_bytes(b"reviewed bytes")
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    store = FilesystemArtifactStore(tmp_path / "artifacts")
+    before = store.publish("statistics", "0.4.0", source, digest).artifact
+    assert cleanup.prune(release_root, 5)
+    assert store.verify("statistics", "0.4.0", digest) == before
+    assert len([r for r in releases if r.exists()]) == 5
