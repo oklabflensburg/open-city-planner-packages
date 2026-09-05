@@ -1,6 +1,11 @@
 # Publishing
 
-The release pipeline is deliberately explicit:
+The following is the existing Registry v1 source-release/bootstrap path. The
+[central builder](central-builder.md) already creates first-party candidates with
+a separate reviewed promotion flow. The [Registry Service v2 ADR](adr/registry-service-v2.md)
+defines the target release lifecycle and phased replacement of JSON promotion.
+
+The current bootstrap pipeline is deliberately explicit:
 
 1. Develop and test the module in its own repository.
 2. Build the host-defined `.ocp` v1 bundle in module CI.
@@ -12,7 +17,7 @@ The release pipeline is deliberately explicit:
 8. Registry PR CI downloads every new release, checks its digest, and runs the pinned host verifier.
 9. Obtain registry review and merge only after all CI gates pass.
 10. Build and atomically deploy `dist/` as one Registry release.
-11. Explicitly mirror the already reviewed bytes outside the Registry release tree.
+11. The deployment automatically mirrors missing reviewed bytes outside the Registry release tree.
 12. In a second reviewed pull request, promote `artifact.url` to the canonical mirror URL.
 
 For example:

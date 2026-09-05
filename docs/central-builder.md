@@ -5,6 +5,9 @@ repositories remain authoritative for reviewed source and immutable tags. This r
 authoritative for the build procedure, candidate provenance, Registry review, and—after a
 separate promotion step—artifact distribution.
 
+The [Registry Service v2 ADR](adr/registry-service-v2.md) defines the next
+Artifact Store/Registry DB cutover while preserving this builder boundary.
+
 ## Existing infrastructure audit
 
 Issue #35 extends the existing Registry pipeline; it does not introduce another Registry format
