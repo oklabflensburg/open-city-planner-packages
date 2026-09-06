@@ -75,3 +75,26 @@ marketing messages and the city application's welcome outbox are not ported.
 SMTP is the default transport. Explicit development `EMAIL_BACKEND=console`
 logs only subject and size, never delivery links or bearer tokens. Tests intercept
 mail in memory. Configured SMTP is required for actual email delivery.
+
+## GitHub and Google (#65)
+
+`GET /api/v1/auth/providers` and `/oauth/providers` expose only fully configured
+providers, never credentials. Both providers share login/link/callback routes
+under `/api/v1/auth/oauth/{provider}` and the reference identity service. Linking
+requires a recent authenticated session, and the callback must still belong to
+the initiating account. `/api/v1/users/me/oauth-accounts` lists links; DELETE on a
+provider requires CSRF and recent authentication and protects the last login method.
+Users can edit names through PATCH `/api/v1/users/me`.
+
+Matching email addresses never auto-merge accounts. Provider emails are trusted
+only when verified. Missing email creates a pending-email account, followed by
+`POST /api/v1/auth/oauth/complete-email` and email verification. Identity and email
+collisions are enforced in PostgreSQL, including concurrent account creation.
+
+OAuth uses the reference HMAC-signed HttpOnly state cookie, validated local redirect
+paths and provider-specific token/user-info exchanges. The Hub additionally checks
+a signed issue timestamp server-side (600 seconds), closes token exchange clients,
+and avoids exception details in exchange failure logs. The two reference central
+provider flows do not use PKCE; no unrelated federated-provider flow was ported.
+Production callbacks are the public origin followed by
+`/api/v1/auth/oauth/github/callback` and `/api/v1/auth/oauth/google/callback`.

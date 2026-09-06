@@ -10,7 +10,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from web.backend.app.auth.api import router
 from web.backend.app.auth.config import get_settings
 from web.backend.app.auth.database import configure_database
+from web.backend.app.auth.oauth_api import router as oauth_router
 from web.backend.app.auth.redis import get_redis
+from web.backend.app.auth.users_api import router as users_router
 
 
 def configure_auth(application: FastAPI):
@@ -32,6 +34,8 @@ def configure_auth(application: FastAPI):
 
     application.router.lifespan_context = lifespan
     application.include_router(router, prefix="/api/v1")
+    application.include_router(oauth_router, prefix="/api/v1")
+    application.include_router(users_router, prefix="/api/v1")
 
     @application.middleware("http")
     async def private_auth_responses(request: Request, call_next):
