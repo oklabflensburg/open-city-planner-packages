@@ -188,57 +188,156 @@ def test_active_pre_migration_cleanup_is_refused(tmp_path):
     maintenance.check_legacy_cleanup()
 
 
-def test_forwarded_inventory_settings_keep_precedence(tmp_path):
-    """Execute the real settings task: production overrides must not become defaults."""
-    ansible = shutil.which("ansible-playbook")
-    assert ansible, "Install the locked development dependencies"
+def forwarding_task():
     outer = yaml.safe_load((FILES.parents[2] / "playbooks/deploy.yml").read_text())[0]
     task = outer["tasks"][2]["block"][1]
-    play = [
-        {
-            "hosts": "all",
-            "connection": "local",
-            "gather_facts": False,
-            "vars": {"maintenance_stage": {"path": str(tmp_path)}},
-            "tasks": [task],
-        }
-    ]
+    assert task["no_log"] is True
+    assert task["ansible.builtin.copy"]["mode"] == "0600"
+    return task
+
+
+def run_forwarding(tmp_path, play, inventory, extra=None):
+    ansible = shutil.which("ansible-playbook")
+    assert ansible, "Install the locked development dependencies"
     play_path = tmp_path / "forward.yml"
-    play_path.write_text(yaml.safe_dump(play))
-    inventory = tmp_path / "inventory.yml"
-    inventory.write_text(
-        yaml.safe_dump(
-            {
-                "all": {
-                    "hosts": {"localhost": {}},
-                    "vars": {
-                        "packages_registry_root": "/custom/root",
-                        "packages_registry_repo_path": "{{ packages_registry_root }}/repo",
-                        "packages_registry_v2_api_enabled": True,
-                        "packages_registry_v1_db_compat_enabled": True,
-                        "packages_registry_v1_db_compat_routing_enabled": True,
-                        "ansible_password": "NOT_A_SECRET_TEST_SENTINEL",
-                    },
-                }
-            }
-        )
-    )
+    play_path.write_text(yaml.safe_dump([play]))
+    inventory_path = tmp_path / "inventory.yml"
+    inventory_path.write_text(yaml.safe_dump(inventory))
     result = subprocess.run(
-        [ansible, "-i", str(inventory), str(play_path), "-e", "packages_registry_deploy_ref=abc"],
+        [ansible, "-i", str(inventory_path), str(play_path), "-e", json.dumps(extra or {})],
         capture_output=True,
         text=True,
         check=False,
+        timeout=30,
+        # Explicitly enable warnings so a user/controller setting cannot mask regression.
+        env=dict(os.environ, ANSIBLE_DEPRECATION_WARNINGS="true", ANSIBLE_NOCOWS="true"),
     )
-    assert result.returncode == 0, result.stdout + result.stderr
-    values = json.loads((tmp_path / "settings.json").read_text())
+    output = result.stdout + result.stderr
+    assert "play_hosts" not in output, output
+    assert "DEPRECATION WARNING" not in output, output
+    return result, output
+
+
+@pytest.mark.parametrize(
+    "winner", ["default", "inventory", "host", "play", "vars_file", "fact", "extra"]
+)
+def test_forwarded_inventory_settings_keep_precedence(tmp_path, winner):
+    """Resolve the real task against Ansible's precedence, not a simulated merge."""
+    sources = ["default", "inventory", "host", "play", "vars_file", "fact", "extra"]
+    active = sources[: sources.index(winner) + 1]
+    key = "packages_registry_precedence_test"
+    role = tmp_path / "roles/forwarding_fixture"
+    (role / "defaults").mkdir(parents=True)
+    (role / "tasks").mkdir()
+    (role / "defaults/main.yml").write_text(yaml.safe_dump({key: "default"}))
+    (role / "tasks/main.yml").write_text("[]\n")
+    group_vars = {
+        "packages_registry_root": "/tmp/example",
+        "packages_registry_repo_path": "{{ packages_registry_root }}/repo",
+        "packages_registry_child": "{{ packages_registry_root }}/child",
+        "packages_registry_v2_api_enabled": True,
+        "packages_registry_v1_db_compat_enabled": True,
+        "packages_registry_v1_db_compat_routing_enabled": True,
+        "ansible_password": "NOT_A_SECRET_TEST_SENTINEL",
+        "ansible_user": "fixture-local-user",
+        "ansible_ssh_private_key_file": "/unused/fixture-key",
+        "ansible_ssh_common_args": "-o BatchMode=yes",
+        "unrelated": "{{ intentionally_undefined_non_registry_value }}",
+        "other_packages_registry_unselected": "excluded",
+    }
+    if "inventory" in active:
+        group_vars[key] = "inventory"
+    host_vars = {"ansible_host": "127.0.0.1"}
+    if "host" in active:
+        host_vars[key] = "host"
+    inventory = {"all": {"hosts": {"localhost": host_vars}, "vars": group_vars}}
+    play = {
+        "hosts": "all",
+        "connection": "local",
+        "gather_facts": False,
+        "roles": ["forwarding_fixture"],
+        "vars": {
+            "maintenance_stage": {"path": str(tmp_path)},
+            "packages_registry_enabled": False,
+            "packages_registry_port": 8100,
+            "packages_registry_string": "8100",
+            "packages_registry_names": ["foo", "bar"],
+            "packages_registry_options": {
+                "mode": "strict",
+                "port": 8100,
+                "path": "{{ packages_registry_child }}",
+            },
+            "packages_registry_optional": None,
+        },
+        "tasks": [],
+    }
+    if "play" in active:
+        play["vars"][key] = "play"
+    if "vars_file" in active:
+        values_file = tmp_path / "values.yml"
+        values_file.write_text(yaml.safe_dump({key: "vars_file"}))
+        play["vars_files"] = [str(values_file)]
+    if "fact" in active:
+        play["tasks"].append({"ansible.builtin.set_fact": {key: "fact"}})
+    extra = {"packages_registry_deploy_ref": "abc"}
+    if "extra" in active:
+        extra[key] = "extra"
+    # The normal Jinja reference and targeted lookup must agree in this exact host context.
+    play["tasks"].extend(
+        [
+            {
+                "ansible.builtin.assert": {
+                    "that": [f"{key} == '{winner}'", "ansible_version.full == '2.19.12'"]
+                }
+            },
+            forwarding_task(),
+        ]
+    )
+    result, output = run_forwarding(tmp_path, play, inventory, extra)
+    assert result.returncode == 0, output
+    settings = tmp_path / "settings.json"
+    values = json.loads(settings.read_text())
+    assert settings.stat().st_mode & 0o777 == 0o600
     assert values == {
-        "packages_registry_root": "/custom/root",
-        "packages_registry_repo_path": "/custom/root/repo",
+        key: winner,
+        "packages_registry_root": "/tmp/example",
+        "packages_registry_repo_path": "/tmp/example/repo",
+        "packages_registry_child": "/tmp/example/child",
         "packages_registry_v2_api_enabled": True,
         "packages_registry_v1_db_compat_enabled": True,
         "packages_registry_v1_db_compat_routing_enabled": True,
         "packages_registry_deploy_ref": "abc",
+        "packages_registry_enabled": False,
+        "packages_registry_port": 8100,
+        "packages_registry_string": "8100",
+        "packages_registry_names": ["foo", "bar"],
+        "packages_registry_options": {"mode": "strict", "port": 8100, "path": "/tmp/example/child"},
+        "packages_registry_optional": None,
     }
+    assert type(values["packages_registry_enabled"]) is bool
+    assert type(values["packages_registry_port"]) is int
+
+
+@pytest.mark.parametrize("broken", [False, True])
+def test_forwarding_empty_allowlist_and_unresolved_value(tmp_path, broken):
+    play = {
+        "hosts": "all",
+        "connection": "local",
+        "gather_facts": False,
+        "vars": {"maintenance_stage": {"path": str(tmp_path)}},
+        "tasks": [forwarding_task()],
+    }
+    if broken:
+        play["vars"]["packages_registry_broken"] = "{{ intentionally_missing_registry_value }}"
+    result, output = run_forwarding(tmp_path, play, {"all": {"hosts": {"localhost": {}}}})
+    settings = tmp_path / "settings.json"
+    if broken:
+        assert result.returncode != 0
+        assert "Forward resolved registry settings without SSH credentials" in output
+        assert not settings.exists()
+    else:
+        assert result.returncode == 0, output
+        assert json.loads(settings.read_text()) == {}
 
 
 def test_whole_local_ansible_run_and_rescue_hold_lock(tmp_path):
