@@ -10,3 +10,5 @@ web/frontend/.output/
 web/frontend/coverage/
 web/frontend/.nuxtrc
 *.py[cod]
+web/frontend/test-results/
+web/frontend/playwright-report/

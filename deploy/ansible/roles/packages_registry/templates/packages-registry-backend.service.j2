@@ -23,6 +23,13 @@ Environment=PACKAGES_REGISTRY_V1_DB_COMPAT_ENABLED=true
 {% else %}
 UnsetEnvironment=PACKAGES_REGISTRY_V1_DB_COMPAT_ENABLED
 {% endif %}
+{% set auth_enabled = (packages_registry_auth_enabled | default(false) | string | lower) in ['true', 'yes', '1', 'on'] %}
+{% if auth_enabled %}
+EnvironmentFile={{ packages_registry_auth_environment_file }}
+Environment=AUTH_ENABLED=true
+{% else %}
+UnsetEnvironment=AUTH_ENABLED
+{% endif %}
 ExecStart={{ packages_registry_current_path }}/.venv/bin/uvicorn web.backend.app.main:app --host 127.0.0.1 --port {{ packages_registry_backend_port }}
 Restart=on-failure
 RestartSec=3

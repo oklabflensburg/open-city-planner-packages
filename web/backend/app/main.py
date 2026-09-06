@@ -120,7 +120,11 @@ def publisher(publisher_id: str, repo: Repository) -> PublisherDetail:
 
 
 def create_app(
-    *, v2_enabled: bool | None = None, v1_compat_enabled: bool | None = None, engine_factory=None
+    *,
+    v2_enabled: bool | None = None,
+    v1_compat_enabled: bool | None = None,
+    engine_factory=None,
+    auth_enabled: bool | None = None,
 ) -> FastAPI:
     """Keep the production JSON app independent of optional PostgreSQL dependencies."""
     if v2_enabled is None:
@@ -133,6 +137,11 @@ def create_app(
         if value not in {"true", "false"}:
             raise ValueError("PACKAGES_REGISTRY_V1_DB_COMPAT_ENABLED must be true or false")
         v1_compat_enabled = value == "true"
+    if auth_enabled is None:
+        value = os.environ.get("AUTH_ENABLED", "false").lower()
+        if value not in {"true", "false"}:
+            raise ValueError("AUTH_ENABLED must be true or false")
+        auth_enabled = value == "true"
     application = FastAPI(
         title="Open City Planner Packages API",
         version="1.0.0",
@@ -183,6 +192,11 @@ def create_app(
     @application.get("/health", response_model=Liveness, tags=["health"])
     def liveness() -> Liveness:
         return Liveness()
+
+    if auth_enabled:
+        from web.backend.app.auth.setup import configure_auth
+
+        configure_auth(application)
 
     return application
 
