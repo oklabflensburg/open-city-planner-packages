@@ -167,13 +167,17 @@ def test_real_nginx_serves_only_complete_immutable_artifacts(tmp_path, db_routin
             assert payload == (
                 b'{"source":"database"}\n' if db_routing else b'{"source":"frozen-static"}\n'
             )
-            assert meta_headers["Cache-Control"] == (
-                "no-cache" if db_routing else "public, max-age=300"
-            )
+            assert meta_headers.get_all("Cache-Control") == ["public, max-age=300"]
             if db_routing:
-                assert get(metadata_path, {"If-None-Match": '"db-fixture"'})[0] == 304
+                conditional_code, conditional_headers, _ = get(
+                    metadata_path, {"If-None-Match": '"db-fixture"'}
+                )
+                assert conditional_code == 304
+                assert conditional_headers.get_all("Cache-Control") == ["public, max-age=300"]
                 backend_status[0] = 503
-                assert get(metadata_path)[0] == 503  # Static file exists: no fallback.
+                error_code, error_headers, _ = get(metadata_path)
+                assert error_code == 503  # Static file exists: no fallback.
+                assert error_headers.get_all("Cache-Control") == ["public, max-age=300"]
                 backend_status[0] = 200
         if not db_routing:
             assert backend_requests == []
@@ -181,7 +185,7 @@ def test_real_nginx_serves_only_complete_immutable_artifacts(tmp_path, db_routin
         assert body == source.read_bytes()
         assert headers.get_content_type() == "application/octet-stream"
         assert headers["X-Content-Type-Options"] == "nosniff"
-        assert headers["Cache-Control"] == "public, max-age=31536000, immutable"
+        assert headers.get_all("Cache-Control") == ["public, max-age=31536000, immutable"]
         assert int(headers["Content-Length"]) == len(body)
         for path in (
             "/.staging/secret.partial",

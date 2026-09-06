@@ -35,14 +35,15 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_hide_header Cache-Control;
         proxy_cache off;
         proxy_intercept_errors off;
         proxy_next_upstream off;
 {% else %}
         default_type application/json;
-        add_header Cache-Control "public, max-age=300" always;
         try_files $uri =404;
 {% endif %}
+        add_header Cache-Control "public, max-age=300" always;
         add_header X-Content-Type-Options "nosniff" always;
         add_header Referrer-Policy "no-referrer" always;
     }
@@ -63,14 +64,15 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_hide_header Cache-Control;
         proxy_cache off;
         proxy_intercept_errors off;
         proxy_next_upstream off;
 {% else %}
         default_type application/json;
-        add_header Cache-Control "public, max-age=300" always;
         try_files $uri =404;
 {% endif %}
+        add_header Cache-Control "public, max-age=300" always;
         add_header X-Content-Type-Options "nosniff" always;
         add_header Referrer-Policy "no-referrer" always;
     }

@@ -819,6 +819,20 @@
             - packages-registry-frontend.service
           when: packages_registry_previous_release_path | length > 0
 
+        - name: Require healthy package explorer processes after rollback
+          ansible.builtin.uri:
+            url: "{{ item.url }}"
+            status_code: 200
+            return_content: true
+          loop:
+            - url: "http://127.0.0.1:{{ packages_registry_backend_port }}/api/v1/health"
+            - url: "http://127.0.0.1:{{ packages_registry_frontend_port }}/"
+          register: packages_registry_rollback_process_smoke
+          retries: 10
+          delay: 2
+          until: packages_registry_rollback_process_smoke.status == 200
+          when: packages_registry_previous_release_path | length > 0
+
         - name: Stop package explorer services after failed first deployment
           ansible.builtin.systemd_service:
             name: "{{ item }}"
