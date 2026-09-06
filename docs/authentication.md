@@ -43,3 +43,35 @@ introduced by the persistence commit.
 Disposable PostgreSQL tests cover standalone migration, populated Registry
 coexistence, upgrade/downgrade, model/schema parity, identity constraints, token
 persistence, account deletion cascades and protection against destructive downgrade.
+
+## Local authentication (#64)
+
+Install the `auth` extra and explicitly set `AUTH_ENABLED=true` and
+`AUTH_DATABASE_URL` to enable `/api/v1/auth` routes. The disabled application does
+not import the auth dependency tree. It continues to serve the existing Registry.
+`/health/auth` checks the independent schema revision and configured rate limiter;
+it does not replace Registry readiness.
+
+Local routes: signup, login, refresh, logout, logout-all, me, session, verify-email,
+resend-verification, forgot-password, reset-password and change-password. Requests,
+responses and error codes follow the reference. Passwords use Argon2 through
+pwdlib; verification/reset tokens are single-purpose hashed database records.
+Password reset/change revokes refresh sessions. Access JWTs retain the reference's
+15-minute lifetime: revoking a refresh family does not invalidate already-issued
+access JWTs. Disabled accounts are checked on every authenticated request.
+
+Cookies are named `ocp_hub_access_token`, `ocp_hub_refresh_token` and
+`ocp_hub_csrf_token`, avoiding collisions with the parent application. Access and
+refresh cookies are HttpOnly; refresh is scoped to `/api/v1/auth`. The CSRF cookie
+is readable by the browser for double-submit validation. Production requires
+Secure cookies and a trusted Origin/Referer for refresh. Refresh rotation uses
+row locks, a five-second concurrency grace period, and family revocation on reuse.
+Auth responses are `no-store`; security rate limiting uses bounded memory only
+for development and requires fail-closed Redis in production.
+
+Security email text/templates and SMTP transport come from the reference, scoped
+to verification, password and MFA notices. Database-managed email templates,
+marketing messages and the city application's welcome outbox are not ported.
+SMTP is the default transport. Explicit development `EMAIL_BACKEND=console`
+logs only subject and size, never delivery links or bearer tokens. Tests intercept
+mail in memory. Configured SMTP is required for actual email delivery.

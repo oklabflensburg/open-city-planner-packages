@@ -30,6 +30,21 @@ Repository = "https://github.com/oklabflensburg/open-city-planner-packages"
 "Live application" = "https://stadtplaner.oklabflensburg.de/"
 
 [project.optional-dependencies]
+auth = [
+    "alembic==1.19.2",
+    "psycopg[binary]==3.3.5",
+    "sqlalchemy==2.0.52",
+    "authlib==1.7.2",
+    "cryptography==50.0.0",
+    "email-validator==2.3.0",
+    "pwdlib[argon2]==0.3.1",
+    "pydantic-settings==2.15.0",
+    "pyjwt==2.13.0",
+    "pyotp==2.10.0",
+    "redis==6.4.0",
+    "webauthn==3.0.0",
+    "jinja2==3.1.6",
+]
 registry-db = [
     "alembic==1.19.2",
     "psycopg[binary]==3.3.5",
@@ -41,6 +56,7 @@ dev = [
   "ansible-core==2.19.12",
   "httpx==0.28.1",
   "pytest==8.4.2",
+  "pytest-asyncio==1.1.0",
   "pyyaml==6.0.3",
   "ruff==0.12.11",
 ]
