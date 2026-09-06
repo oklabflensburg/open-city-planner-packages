@@ -9,7 +9,8 @@ import shutil
 import sys
 from pathlib import Path
 
-LOCK = Path("/var/lib/ocp-packages-maintenance/lock")
+from maintenance_lock import LOCK, LockBusy, check_legacy_cleanup, exclusive_lock
+
 SHA = re.compile(r"[0-9a-f]{40}")
 
 
@@ -94,17 +95,15 @@ def main() -> int:
     parser.add_argument("--retention", required=True, type=int)
     args = parser.parse_args()
     try:
-        LOCK.mkdir(mode=0o700)
-    except FileExistsError:
-        print("Deployment/maintenance lock exists; cleanup deferred.", flush=True)
+        with exclusive_lock(LOCK):
+            check_legacy_cleanup()
+            print(json.dumps({"deleted": prune(args.release_root, args.retention)}))
+    except LockBusy:
+        print("Deployment/maintenance lock busy; cleanup deferred.", flush=True)
         return 0
-    try:
-        print(json.dumps({"deleted": prune(args.release_root, args.retention)}))
     except (OSError, ValueError, RuntimeError) as exc:
         print(f"Cleanup refused/failed: {exc}", file=sys.stderr, flush=True)
         return 1
-    finally:
-        LOCK.rmdir()
     return 0
 
 

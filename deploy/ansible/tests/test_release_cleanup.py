@@ -1,10 +1,12 @@
 import importlib.util
 import os
+import sys
 from pathlib import Path
 
 import pytest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "roles/packages_registry/files/prune_releases.py"
+sys.path.insert(0, str(SCRIPT.parent))
 spec = importlib.util.spec_from_file_location("prune_releases", SCRIPT)
 cleanup = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(cleanup)
@@ -130,14 +132,15 @@ def test_cli_lock_and_failure_reporting(tree, tmp_path, monkeypatch, capsys):
     lock = tmp_path / "lock"
     monkeypatch.setattr(cleanup, "LOCK", lock)
     monkeypatch.setattr("sys.argv", ["cleanup", "--release-root", str(root), "--retention", "5"])
-    lock.mkdir()
-    assert cleanup.main() == 0
-    assert "deferred" in capsys.readouterr().out
-    lock.rmdir()
+    with cleanup.exclusive_lock(lock):
+        assert cleanup.main() == 0
+        assert "deferred" in capsys.readouterr().out
     (root / "unsafe").mkdir()
     assert cleanup.main() == 1
     assert "failed" in capsys.readouterr().err
-    assert not lock.exists()
+    assert lock.is_file()
+    with cleanup.exclusive_lock(lock):
+        pass
 
 
 def test_published_store_survives_real_application_pruning(tree, tmp_path):
