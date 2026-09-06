@@ -235,13 +235,13 @@ def test_normal_deploy_self_provisions_pinned_web_runtime() -> None:
     bootstrap = read(ANSIBLE / "playbooks" / "bootstrap.yml")
     runtime = read(RUNTIME_ROLE / "tasks" / "main.yml")
     defaults = yaml.safe_load(read(RUNTIME_ROLE / "defaults" / "main.yml"))
-    deploy = yaml.safe_load(read(ANSIBLE / "playbooks" / "deploy.yml"))
+    deploy = yaml.safe_load(read(ANSIBLE / "playbooks" / "deploy_locked.yml"))
     bootstrap_play = yaml.safe_load(bootstrap)
     assert defaults["packages_registry_node_version"] == "22.23.2"
     assert defaults["packages_registry_nodesource_package_version"] == ("22.23.2-1nodesource1")
     assert defaults["packages_registry_corepack_version"] == "0.35.0"
     assert defaults["packages_registry_pnpm_version"] == "11.22.0"
-    deployment_block = deploy[0]["tasks"][2]["block"]
+    deployment_block = deploy[0]["tasks"]
     assert (
         deployment_block[0]["ansible.builtin.include_role"]["name"] == "packages_registry_runtime"
     )
@@ -297,9 +297,16 @@ def test_release_retention_cannot_prune_persistent_artifacts() -> None:
 def test_deploy_and_cleanup_share_exclusive_lock_and_timer_is_independent() -> None:
     play = read(ANSIBLE / "playbooks/deploy.yml")
     script = read(ROLE / "files/prune_releases.py")
-    assert "/var/lib/ocp-packages-maintenance/lock" in play
-    assert "/var/lib/ocp-packages-maintenance/lock" in script
-    assert play.index("Acquire exclusive") < play.index("Assemble and activate")
+    lock = read(ROLE / "files/maintenance_lock.py")
+    assert "/var/lib/ocp-packages-maintenance/maintenance.lock" in lock
+    assert "from maintenance_lock import LOCK," in script
+    assert "maintenance_lock.py" in play and "- --run" in play
+    assert "async: 2700" in play
+    assert "LOCK.mkdir" not in script and "[mkdir," not in play
+    inner = read(ANSIBLE / "playbooks/deploy_locked.yml")
+    assert inner.index("tasks_from: install_cleanup") < inner.index("Inspect existing")
+    assert inner.index("--check-legacy-cleanup") < inner.index("Inspect existing")
+    assert inner.index("Inspect existing") < inner.index("Assemble and activate")
     assert "always:" in play
     timer = read(ROLE / "templates/packages-registry-cleanup.timer.j2")
     assert "OnCalendar=daily" in timer

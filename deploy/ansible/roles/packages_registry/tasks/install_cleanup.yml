@@ -26,6 +26,14 @@
     group: root
     mode: '0700'
 
+- name: Install shared process-owned maintenance lock implementation
+  ansible.builtin.copy:
+    src: maintenance_lock.py
+    dest: /usr/local/libexec/maintenance_lock.py
+    owner: root
+    group: root
+    mode: '0644'
+
 - name: Install safe local release cleanup executable
   ansible.builtin.copy:
     src: prune_releases.py

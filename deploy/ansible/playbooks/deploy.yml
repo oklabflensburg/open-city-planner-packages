@@ -1,65 +1,14 @@
 ---
-- name: Deploy package registry
+- name: Deploy package registry with a process-owned maintenance lock
   hosts: packages_registry
   become: true
   serial: 1
   any_errors_fatal: true
-  environment:
-    GIT_CONFIG_NOSYSTEM: "1"
-    GIT_CONFIG_GLOBAL: /dev/null
-    GIT_TERMINAL_PROMPT: "0"
-  pre_tasks:
-    - name: Inspect existing package registry checkout
-      ansible.builtin.stat:
-        path: /opt/open-city-planner-packages/repo/.git
-      register: packages_registry_existing_git
-
-    - name: Normalize existing package registry origin to public GitHub URL
-      ansible.builtin.command:
-        argv:
-          - git
-          - remote
-          - set-url
-          - origin
-          - https://github.com/oklabflensburg/open-city-planner-packages.git
-        chdir: /opt/open-city-planner-packages/repo
-      become_user: ocp-packages
-      changed_when: true
-      when: packages_registry_existing_git.stat.isdir | default(false)
-
-    - name: Remove stale local Git authentication settings
-      ansible.builtin.command:
-        argv:
-          - git
-          - config
-          - --local
-          - --unset-all
-          - "{{ item }}"
-        chdir: /opt/open-city-planner-packages/repo
-      become_user: ocp-packages
-      loop:
-        - http.https://github.com/.extraheader
-        - http.extraheader
-        - credential.helper
-        - credential.username
-      register: packages_registry_local_git_auth_cleanup
-      changed_when: packages_registry_local_git_auth_cleanup.rc == 0
-      failed_when: packages_registry_local_git_auth_cleanup.rc not in [0, 5]
-      when: packages_registry_existing_git.stat.isdir | default(false)
-
-    - name: Force GitHub Smart HTTP over HTTP/1.1
-      ansible.builtin.command:
-        argv:
-          - git
-          - config
-          - --local
-          - http.version
-          - HTTP/1.1
-        chdir: /opt/open-city-planner-packages/repo
-      become_user: ocp-packages
-      changed_when: true
-      when: packages_registry_existing_git.stat.isdir | default(false)
-
+  vars:
+    maintenance_uv_executable: >-
+      {{ packages_registry_uv_venv | default(
+         (packages_registry_root | default('/opt/open-city-planner-packages')) ~ '/tools/uv'
+      ) }}/bin/uv
   tasks:
     - name: Ensure persistent maintenance lock parent exists
       ansible.builtin.file:
@@ -69,21 +18,88 @@
         group: root
         mode: '0700'
 
-    - name: Acquire exclusive deployment and retention lock
-      ansible.builtin.command:
-        argv: [mkdir, --mode=0700, /var/lib/ocp-packages-maintenance/lock]
-      changed_when: true
+    - name: Create private deployment invocation directory
+      ansible.builtin.tempfile:
+        state: directory
+        path: /var/lib/ocp-packages-maintenance
+        prefix: deploy-
+      register: maintenance_stage
 
-    - name: Deploy under exclusive retention lock
+    - name: Stage deployment code and resolved settings
       block:
-        - name: Prepare runtime
-          ansible.builtin.include_role:
-            name: packages_registry_runtime
-        - name: Assemble and activate verified release
-          ansible.builtin.include_role:
-            name: packages_registry
-      always:
-        - name: Release deployment and retention lock
+        - name: Copy the exact controller playbooks and roles
+          ansible.builtin.copy:
+            src: "{{ item.src }}"
+            dest: "{{ maintenance_stage.path }}/{{ item.dest }}"
+            mode: preserve
+          loop:
+            - {src: '../roles/', dest: roles/}
+            - {src: deploy_locked.yml, dest: deploy_locked.yml}
+            - {src: '../ansible.cfg', dest: ansible.cfg}
+
+        - name: Forward resolved registry settings without SSH credentials
+          ansible.builtin.copy:
+            content: >-
+              {{ vars | dict2items | selectattr('key', 'match', '^packages_registry_')
+                 | items2dict | to_nice_json }}
+            dest: "{{ maintenance_stage.path }}/settings.json"
+            mode: '0600'
+          no_log: true
+
+        - name: Prepare pinned local Ansible for this invocation
           ansible.builtin.command:
-            argv: [rmdir, /var/lib/ocp-packages-maintenance/lock]
+            argv:
+              - "{{ maintenance_uv_executable }}"
+              - venv
+              - --python
+              - /usr/bin/python3
+              - "{{ maintenance_stage.path }}/venv"
           changed_when: true
+
+        - name: Install the controller Ansible version in the private runtime
+          ansible.builtin.command:
+            argv:
+              - "{{ maintenance_uv_executable }}"
+              - pip
+              - install
+              - --python
+              - "{{ maintenance_stage.path }}/venv/bin/python"
+              - ansible-core==2.19.12
+          changed_when: true
+
+        # The runner, not a short-lived acquire task, owns the fd throughout
+        # local Ansible, including its rescue/rollback tasks. Async survives SSH loss.
+        - name: Execute complete deployment under exclusive maintenance lock
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/python3
+              - "{{ maintenance_stage.path }}/roles/packages_registry/files/maintenance_lock.py"
+              - --run
+              - "{{ maintenance_stage.path }}/venv/bin/ansible-playbook"
+              - -i
+              - localhost,
+              - -c
+              - local
+              - deploy_locked.yml
+              - -e
+              - '@settings.json'
+            chdir: "{{ maintenance_stage.path }}"
+          async: 2700
+          poll: 5
+          changed_when: true
+          register: maintenance_result
+
+      # Only a confirmed completed command permits removal. After SSH loss the
+      # remote deployment may still be using this private invocation directory.
+      always:
+        - name: Report local deployment output when available
+          ansible.builtin.debug:
+            msg: "{{ maintenance_result.stdout_lines | default([]) }}"
+
+        - name: Remove invocation files only after confirmed process completion
+          ansible.builtin.file:
+            path: "{{ maintenance_stage.path }}"
+            state: absent
+          when:
+            - maintenance_result.finished | default(false) | bool
+            - maintenance_result.rc is defined

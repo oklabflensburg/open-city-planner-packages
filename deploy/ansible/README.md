@@ -324,12 +324,62 @@ rechecks protection immediately before each fd-safe recursive removal. Repeating
 successful cleanup is a no-op; errors remain visible as failed service status and in
 the journal, without rolling back or changing a successful deployment result.
 
-Deployment and cleanup exclusively acquire `/var/lib/ocp-packages-maintenance/lock`
-via atomic mkdir. Cleanup defers when the lock exists; deploy refuses concurrent work.
-A deployment removes its lock in `always`, including ordinary failures. SSH loss or
-process termination may leave a stale lock (which deliberately survives reboots):
-inspect running deployment/cleanup processes and both release pointers
-before an operator removes that **empty lock directory**. Never automatically break it.
+Deployment and cleanup use the same nonblocking `flock(2)` implementation in
+`roles/packages_registry/files/maintenance_lock.py`, exclusively locking the persistent
+root-owned `0600` file `/var/lib/ocp-packages-maintenance/maintenance.lock` inside the
+existing root-owned `0700` maintenance directory. **Never unlink or replace this file**:
+its inode is the shared authority, and its existence does not mean the lock is held.
+Cleanup reports contention as deferred (exit 0); deployment reports busy (exit 75).
+The kernel releases ownership when the last owning file descriptor closes, including
+on process termination or reboot. No lock-directory removal or stale-age heuristic is
+needed.
+
+A separate Ansible `flock` acquire task would release the lock before the next task.
+Instead, `playbooks/deploy.yml` stages the controller's exact roles, internal playbook,
+and resolved `packages_registry_*` settings in a private invocation directory beneath
+the maintenance directory. It uses bootstrapped uv to provision pinned Ansible Core
+2.19.12 there (target Python must be at least 3.11). The shared runner holds the lock
+while that target-local Ansible process executes **all** deployment work, including Git
+normalization, verification, activation and rollback. The descriptor is also inherited
+by Ansible, so killing only the runner does not unlock surviving deployment work.
+The existing roles and inventory overrides remain authoritative; SSH credentials are
+not forwarded. `deploy_locked.yml` is an internal entry point, not an operator command.
+
+The remote invocation runs through Ansible async with a 2700-second process-group
+timeout and survives controller/SSH disconnection; the lock stays held while work
+continues. Output is reported when the invocation finishes. Completed invocation files
+are removed only after confirmed completion. If the controller disconnects or preparation
+fails, a private `deploy-*` staging directory may remain; it is **not a lock** and never
+blocks later maintenance. Inspect async job status/processes before removing such
+staging files. Do not assume cancelling the controller has cancelled remote work.
+
+### Transition from the directory lock
+
+Run `34011556546`, job `101428261630`, failed at atomic `mkdir` because the old
+`/var/lib/ocp-packages-maintenance/lock` directory existed. The log cannot establish
+whether its owner was still active. The old `always` removal did not cover process
+termination/SSH loss, making an abandoned directory a permanent deployment blocker.
+
+Before the **first** invocation of either updated playbook (`deploy.yml` or
+`cleanup.yml`), let all deployments using the old playbook finish and retire those
+entry points, including manual controllers. The existing
+production workflow concurrency group serializes CI deployments. An old directory lock
+has no verifiable owner: inspecting its age cannot safely prove that an old deployment
+has ended. Do not run old and new deployment controllers concurrently during rollout.
+
+Under the new file lock, deployment first atomically upgrades the installed cleanup
+entry point, then refuses to proceed while any prior cleanup process is still running.
+New cleanup invocations use the same file lock and defer. The cleanup CLI also checks
+for pre-migration cleanup processes after acquiring the file lock. No active maintenance
+process is killed, and release work starts only after that check succeeds. The independent
+daily timer and manually queued systemd service retain their scheduling policy.
+
+The old `lock/` directory is deliberately left untouched and ignored by the new code.
+An abandoned directory therefore cannot block a new deploy. It may be removed manually
+only after all old entry points have been retired and their processes have ended; no
+automatic deletion tries to break an unverifiable old owner. Leaving it in place also
+prevents accidental reuse by an old mkdir-based entry point.
+
 On a first deploy, or when upgrading an installation without a recorded predecessor,
 cleanup refuses until a subsequent distinct deployment establishes `previous`. An
 incomplete/partially deleted release also requires explicit operator classification;
