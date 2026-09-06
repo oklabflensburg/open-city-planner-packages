@@ -38,10 +38,12 @@
             - {src: '../ansible.cfg', dest: ansible.cfg}
 
         - name: Forward resolved registry settings without SSH credentials
+          vars:
+            maintenance_registry_names: "{{ query('ansible.builtin.varnames', '^packages_registry_') | sort }}"
+            maintenance_registry_values: "{{ query('ansible.builtin.vars', *maintenance_registry_names) }}"
           ansible.builtin.copy:
             content: >-
-              {{ vars | dict2items | selectattr('key', 'match', '^packages_registry_')
-                 | items2dict | to_nice_json }}
+              {{ dict(maintenance_registry_names | zip(maintenance_registry_values)) | to_nice_json }}
             dest: "{{ maintenance_stage.path }}/settings.json"
             mode: '0600'
           no_log: true
