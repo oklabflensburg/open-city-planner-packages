@@ -1,15 +1,19 @@
 """Opt-in auth integration; no migrations or Registry write grants at startup."""
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from redis.exceptions import RedisError
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from web.backend.app.auth.api import router
 from web.backend.app.auth.config import get_settings
+from web.backend.app.auth.cors import AuthCorsMiddleware
 from web.backend.app.auth.database import configure_database
+from web.backend.app.auth.logging import AuthAccessFilter
 from web.backend.app.auth.oauth_api import router as oauth_router
 from web.backend.app.auth.redis import get_redis
 from web.backend.app.auth.users_api import router as users_router
@@ -17,7 +21,11 @@ from web.backend.app.auth.users_api import router as users_router
 
 def configure_auth(application: FastAPI):
     settings = get_settings()
+    access_logger = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, AuthAccessFilter) for f in access_logger.filters):
+        access_logger.addFilter(AuthAccessFilter())
     configure_database(application)
+    application.add_middleware(AuthCorsMiddleware, origins=settings.cors_origin_list)
     original_lifespan = application.router.lifespan_context
 
     @asynccontextmanager
@@ -59,7 +67,7 @@ def configure_auth(application: FastAPI):
                 client = get_redis()
                 if client is None or not await client.ping():
                     raise ValueError("Rate limiter unavailable")
-        except (SQLAlchemyError, OSError, ValueError):
+        except (SQLAlchemyError, RedisError, OSError, ValueError):
             return JSONResponse(
                 {"status": "unavailable"}, status_code=503, headers={"Cache-Control": "no-store"}
             )

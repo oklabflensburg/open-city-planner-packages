@@ -16,6 +16,7 @@ export default defineNuxtConfig({
     apiBaseInternal:
       process.env.NUXT_API_BASE_INTERNAL || 'http://127.0.0.1:8000/api',
     public: {
+      authEnabled: false,
       apiBase: process.env.NUXT_PUBLIC_API_BASE || 'http://localhost:8000/api',
       siteUrl:
         process.env.NUXT_PUBLIC_SITE_URL ||

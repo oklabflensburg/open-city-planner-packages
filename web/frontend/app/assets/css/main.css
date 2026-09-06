@@ -1293,3 +1293,26 @@ select,
 .license-card p {
   line-height: 17px;
 }
+
+/* Auth forms reuse the Package Hub palette and card proportions. */
+.auth-card { max-width: 32rem; margin: 2rem auto; padding: 1.5rem; border: 1px solid #dbe7f4; border-radius: .5rem; background: white; }
+.auth-card h1 { font-size: 1.8rem; font-weight: 750; color: #071a36; }
+.auth-card h2 { font-size: 1.3rem; font-weight: 700; color: #071a36; }
+.auth-card h3 { font-weight: 650; margin-top: 1rem; }
+.auth-card p { margin: .75rem 0; }
+.auth-card form, .auth-providers, .auth-links { display: grid; gap: .65rem; margin-top: 1rem; }
+.auth-card input, .auth-card select { width: 100%; padding: .6rem .75rem; border: 1px solid #c4d5eb; border-radius: .35rem; background: #f7faff; color: #071a36; }
+.auth-card label { font-weight: 600; font-size: .9rem; }
+.auth-card a { color: #005acb; }
+.auth-card button { margin-top: .4rem; }
+.auth-card button:disabled { cursor: wait; opacity: .65; }
+.auth-error { padding: .8rem; border: 1px solid #b91c1c; color: #991b1b; background: #fff1f2; border-radius: .35rem; }
+.auth-message { padding: .8rem; color: #166534; background: #effcf3; border-radius: .35rem; }
+.auth-hint { font-size: .85rem; color: #506489; }
+.auth-secret { overflow-wrap: anywhere; font-family: monospace; padding: .6rem; background: #f0f6fd; display: block; }
+.auth-profile { max-width: 70rem; margin: 2rem auto; padding: 0 1rem; }
+.auth-security { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit,minmax(min(100%,28rem),1fr)); }
+.auth-security > .auth-card { width: 100%; max-width: none; margin: 0; }
+.auth-row { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; margin-top: 1rem; }
+.auth-header-link { font-size: .8rem; color: #102746; }
+@media (max-width: 600px) { .auth-card { margin: 1rem; padding: 1rem; } .header-controls .auth-header-link { display: none; } }

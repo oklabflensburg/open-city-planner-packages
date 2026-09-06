@@ -8,6 +8,7 @@ from typing import Literal
 import jwt
 from fastapi import HTTPException, Request, Response, status
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from web.backend.app.auth.config import get_settings
@@ -134,7 +135,15 @@ async def signup(session: AsyncSession, payload: SignupRequest) -> User:
         email_pending=False,
     )
     session.add(user)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise auth_error(
+            "EMAIL_ALREADY_REGISTERED",
+            "Diese E-Mail-Adresse ist bereits registriert.",
+            status.HTTP_409_CONFLICT,
+        ) from exc
     await session.refresh(user)
     token = await create_verification_token(session, user)
     await send_verification_email(session, user, token)
@@ -267,7 +276,7 @@ def set_auth_cookies(
         settings.auth_refresh_cookie_name,
         refresh_token,
         httponly=True,
-        path="/api/v1/auth",
+        path="/",
         max_age=settings.refresh_token_expire_days * 86400,
         **common,
     )
@@ -285,7 +294,7 @@ def clear_auth_cookies(response: Response) -> None:
     settings = get_settings()
     for name, path in [
         (settings.auth_access_cookie_name, settings.auth_cookie_path),
-        (settings.auth_refresh_cookie_name, "/api/v1/auth"),
+        (settings.auth_refresh_cookie_name, "/"),
         (settings.auth_csrf_cookie_name, settings.auth_cookie_path),
     ]:
         response.delete_cookie(name, path=path, domain=settings.auth_cookie_domain)

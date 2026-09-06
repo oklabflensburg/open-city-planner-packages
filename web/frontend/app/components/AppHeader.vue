@@ -1,18 +1,30 @@
 <script setup lang="ts">
-const menuOpen = ref(false)
-const route = useRoute()
+const auth = useAuth();
+const { user } = auth;
+const logoutError = ref("");
+async function logout() {
+  try {
+    await auth.logout();
+    await navigateTo("/");
+  } catch {
+    logoutError.value =
+      "Abmelden gerade nicht möglich. Bitte erneut versuchen.";
+  }
+}
+const menuOpen = ref(false);
+const route = useRoute();
 watch(
   () => route.fullPath,
   () => {
-    menuOpen.value = false
+    menuOpen.value = false;
   },
-)
+);
 const links = [
-  { label: 'Module', to: '/packages' },
-  { label: 'Publisher', to: '/publishers' },
-  { label: 'Dokumentation', to: '/docs' },
-  { label: 'Community', to: '/about' },
-]
+  { label: "Module", to: "/packages" },
+  { label: "Publisher", to: "/publishers" },
+  { label: "Dokumentation", to: "/docs" },
+  { label: "Community", to: "/about" },
+];
 </script>
 <template>
   <header class="hub-header">
@@ -48,7 +60,23 @@ const links = [
           class="language"
         >
           DE⌄</button
+        ><template v-if="auth.enabled">
+          <template v-if="user"
+            ><NuxtLink class="login-button" to="/profil">{{
+              user.display_name || "Profil"
+            }}</NuxtLink
+            ><button class="auth-header-link" @click="logout">
+              Abmelden
+            </button></template
+          >
+          <template v-else
+            ><NuxtLink to="/anmelden" class="login-button">Anmelden</NuxtLink
+            ><NuxtLink class="auth-header-link" to="/registrieren"
+              >Registrieren</NuxtLink
+            ></template
+          > </template
         ><button
+          v-else
           type="button"
           disabled
           class="login-button"
@@ -72,7 +100,18 @@ const links = [
       <NuxtLink v-for="link in links" :key="link.to" :to="link.to">{{
         link.label
       }}</NuxtLink>
+      <template v-if="auth.enabled">
+        <template v-if="user"
+          ><NuxtLink to="/profil">Profil</NuxtLink
+          ><button @click="logout">Abmelden</button></template
+        >
+        <template v-else
+          ><NuxtLink to="/anmelden">Anmelden</NuxtLink
+          ><NuxtLink to="/registrieren">Registrieren</NuxtLink></template
+        >
+      </template>
     </nav>
+    <p v-if="logoutError" role="alert">{{ logoutError }}</p>
     <SearchCommandPalette />
   </header>
 </template>

@@ -11,14 +11,16 @@ def configure_database(application):
     settings = get_settings()
     if not settings.auth_database_url:
         raise ValueError("AUTH_DATABASE_URL is required when authentication is enabled")
+    url = database_url(settings.auth_database_url)
+    options = str(url.query.get("options", "")) + " -cstatement_timeout=10000"
     engine = create_async_engine(
-        database_url(settings.auth_database_url),
+        url,
         hide_parameters=True,
         pool_pre_ping=True,
         pool_size=5,
         max_overflow=5,
         pool_timeout=10,
-        connect_args={"connect_timeout": 5, "options": "-cstatement_timeout=10000"},
+        connect_args={"connect_timeout": 5, "options": options},
     )
     application.state.auth_engine = engine
     application.state.auth_sessions = async_sessionmaker(engine, expire_on_commit=False)

@@ -114,3 +114,41 @@ def test_disabled_user_and_limits(auth_client, auth_engine):
     limited = auth_client.post("/api/v1/auth/login", json=ACCOUNT)
     assert limited.status_code == 429
     assert int(limited.headers["retry-after"]) > 0
+
+
+def test_invalid_refresh_clears_browser_cookies(auth_client):
+    signup(auth_client)
+    auth_client.cookies.set(
+        "ocp_hub_refresh_token", "NOT_A_SECRET_INVALID_TOKEN", domain="testserver.local", path="/"
+    )
+    response = auth_client.post("/api/v1/auth/refresh")
+    assert response.status_code == 401
+    assert len(response.headers.get_list("set-cookie")) == 3
+    assert not any(cookie.name.startswith("ocp_hub_") for cookie in auth_client.cookies.jar)
+
+
+def test_profile_cannot_grant_registry_roles(auth_client, auth_engine):
+    headers = signup(auth_client)
+    response = auth_client.patch(
+        "/api/v1/users/me",
+        headers=headers,
+        json={"display_name": "Test", "roles": ["admin"], "is_superuser": True},
+    )
+    assert response.status_code == 200
+    with Session(auth_engine) as session:
+        user = session.scalar(select(User))
+        assert user.roles == [] and not user.is_superuser
+
+
+def test_credentialed_auth_cors_does_not_change_registry_policy(auth_client):
+    headers = {
+        "origin": "http://localhost:3000",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "content-type,x-csrf-token",
+    }
+    assert auth_client.options("/api/v1/packages", headers=headers).status_code == 400
+    response = auth_client.options("/api/v1/auth/login", headers=headers)
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-credentials"] == "true"
+    headers["origin"] = "https://evil.test"
+    assert auth_client.options("/api/v1/auth/login", headers=headers).status_code == 400

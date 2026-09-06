@@ -62,7 +62,7 @@ access JWTs. Disabled accounts are checked on every authenticated request.
 
 Cookies are named `ocp_hub_access_token`, `ocp_hub_refresh_token` and
 `ocp_hub_csrf_token`, avoiding collisions with the parent application. Access and
-refresh cookies are HttpOnly; refresh is scoped to `/api/v1/auth`. The CSRF cookie
+refresh cookies are HttpOnly; the Hub scopes refresh to `/` for SSR (see below). The CSRF cookie
 is readable by the browser for double-submit validation. Production requires
 Secure cookies and a trusted Origin/Referer for refresh. Refresh rotation uses
 row locks, a five-second concurrency grace period, and family revocation on reuse.
@@ -120,3 +120,45 @@ Account deactivation and deletion use the reference confirmation/password/recent
 auth guards. Only auth data is affected; Registry tables have no user foreign keys
 and remain untouched. Provider avatar metadata is retained in provider records;
 no remote avatar fetch or city-specific avatar storage is introduced.
+
+## SSR and browser UI (#67)
+
+The Hub provides `/anmelden`, `/registrieren`, `/passwort-vergessen`,
+`/passwort-zuruecksetzen`, `/email-bestaetigen`, `/profil`, `/auth/callback` and
+`/auth/mfa`. The header reflects the authenticated user; unrelated header controls,
+Registry views and footer services retain their existing behavior.
+
+Unlike the reference's client-only bootstrap, SSR resolves `/auth/me` before
+rendering. Only an explicit user projection enters the Nuxt payload. CSRF and MFA
+challenges stay in browser cookies or request-local memory; recovery codes and
+TOTP secrets exist only in the active client component. Nothing uses localStorage.
+Email-token query URLs receive an empty 303 response to the same local path
+with a browser-only fragment before SSR. This also protects error rendering during
+outages. Nuxt `payload.path` is additionally stripped of email-token queries; the
+browser consumes the token into component memory and replaces the URL after hydration.
+
+The refresh cookie path is `/` in the Hub so Nuxt receives it on page requests and
+can recover expired access sessions during SSR. It remains HttpOnly, Secure in
+production, host-only by default, and protected by Origin/Referer validation on
+refresh. Nuxt forwards cookies only to the configured internal API and propagates
+rotated Set-Cookie headers to the browser. An uncertain SSR session causes a 503,
+not an incorrectly anonymous header. Personalized responses and auth pages use
+`private, no-store`; auth API responses use `no-store`.
+
+Client refresh is single-flight and respects rotation conflicts. Auth generation
+checks prevent an in-flight refresh from restoring a logged-out session. Refresh
+failures explicitly return cookie deletions (FastAPI exception responses otherwise
+discard modifications to the injected Response). Concurrent signup uniqueness
+conflicts return the same 409 contract as sequential duplicates.
+
+The browser test uses an isolated PostgreSQL schema, real backend and built SSR
+server. It exercises signup, `/me`, SSR refresh, logout/login, protected profile,
+actual signed WebAuthn registration/passwordless login/step-up with Chromium's
+virtual authenticator, and token absence from HTML. It imports the checked-in
+Registry into that disposable schema to verify personalized Registry-page caching.
+
+```sh
+uv sync --frozen --extra auth
+# In web/frontend: pnpm install --frozen-lockfile; pnpm exec playwright install chromium; pnpm build
+PACKAGES_REGISTRY_TEST_DATABASE_URL=... uv run --frozen --extra auth python -m scripts.run_auth_e2e
+```

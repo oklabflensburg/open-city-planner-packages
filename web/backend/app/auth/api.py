@@ -2,6 +2,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 
 from web.backend.app.auth.config import get_settings
 from web.backend.app.auth.csrf import create_csrf_token, validate_csrf, validate_refresh_origin
@@ -100,15 +101,17 @@ async def post_refresh(session: SessionDep, response: Response, request: Request
     validate_refresh_origin(request)
     refresh_token = request.cookies.get(settings.auth_refresh_cookie_name)
     if not refresh_token:
-        clear_auth_cookies(response)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={
-                "error": {
-                    "code": "REFRESH_TOKEN_MISSING",
-                    "message": "Bitte melden Sie sich erneut an.",
-                }
-            },
+        return refresh_failure(
+            response,
+            HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={
+                    "error": {
+                        "code": "REFRESH_TOKEN_MISSING",
+                        "message": "Bitte melden Sie sich erneut an.",
+                    }
+                },
+            ),
         )
     await check_rate_limit(
         rate_limit_key(request, "refresh", hash_token(refresh_token)[:24]),
@@ -127,7 +130,7 @@ async def post_refresh(session: SessionDep, response: Response, request: Request
             "ACCOUNT_SELF_DEACTIVATED",
             "ACCOUNT_DISABLED",
         }:
-            clear_auth_cookies(response)
+            return refresh_failure(response, exc)
         raise
     return AuthResponse(user=UserRead.model_validate(user), csrf_token=csrf_token)
 
@@ -550,3 +553,16 @@ async def delete_totp(
             "Zwei-Faktor-Authentifizierung wurde deaktiviert. Bitte melden Sie sich erneut an."
         )
     )
+
+
+def refresh_failure(response: Response, error: HTTPException) -> JSONResponse:
+    # Raising HTTPException discards cookies set on FastAPI's injected Response.
+    # Return the actual failure response so the browser also clears invalid sessions.
+    clear_auth_cookies(response)
+    failure = JSONResponse(
+        {"detail": error.detail}, status_code=error.status_code, headers=error.headers
+    )
+    failure.raw_headers.extend(
+        (name, value) for name, value in response.raw_headers if name == b"set-cookie"
+    )
+    return failure

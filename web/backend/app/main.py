@@ -148,16 +148,10 @@ def create_app(
         description="Read-only Registry discovery. JSON remains production authority; "
         "explicitly enabled Registry v2 representations read a shadow PostgreSQL database.",
     )
-    auth_origins = None
-    if auth_enabled:
-        from web.backend.app.auth.config import get_settings
-
-        auth_origins = get_settings().cors_origin_list
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=auth_origins or ["http://localhost:3000", "http://127.0.0.1:3000"],
-        allow_credentials=bool(auth_enabled),
-        allow_methods=["GET", "POST", "PATCH", "DELETE"] if auth_enabled else ["GET"],
+        allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+        allow_methods=["GET"],
         allow_headers=["*"],
         expose_headers=["ETag"],
     )
