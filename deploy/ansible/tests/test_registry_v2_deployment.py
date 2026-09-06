@@ -41,6 +41,8 @@ def test_api_activation_is_normalized_and_independent(v2, compat):
 
 def test_v2_defaults_off_and_does_not_enable_legacy_routing():
     assert DEFAULTS["packages_registry_v2_api_enabled"] is False
+    assert DEFAULTS["packages_registry_v1_db_compat_enabled"] is False
+    assert DEFAULTS["packages_registry_v1_db_compat_routing_enabled"] is False
     nginx = jinja2.Environment(undefined=jinja2.StrictUndefined).from_string(
         (ROLE / "templates/packages-registry.nginx.conf.j2").read_text()
     )
@@ -48,6 +50,31 @@ def test_v2_defaults_off_and_does_not_enable_legacy_routing():
     index = rendered.split("location = /index.json {", 1)[1].split("}", 1)[0]
     assert "try_files" in index
     assert "proxy_pass" not in index
+
+
+@pytest.mark.parametrize("routing", [False, True, "false", "true"])
+def test_v2_activation_keeps_both_v1_metadata_routes_independent(routing):
+    settings = {
+        **DEFAULTS,
+        "packages_registry_v2_api_enabled": True,
+        "packages_registry_v1_db_compat_enabled": True,
+        "packages_registry_v1_db_compat_routing_enabled": routing,
+    }
+    nginx = jinja2.Environment(undefined=jinja2.StrictUndefined).from_string(
+        (ROLE / "templates/packages-registry.nginx.conf.j2").read_text()
+    )
+    rendered = nginx.render(settings)
+    locations = rendered.split("    location ")
+    for prefix in ("= /index.json {", "~ ^/modules/[a-z]"):
+        location = next(block for block in locations if block.startswith(prefix))
+        location = location.split("\n    }", 1)[0]
+        routed = str(routing).lower() == "true"
+        assert ("proxy_pass" in location) is routed
+        assert ("try_files" in location) is not routed
+    # The v2 service and its API proxy remain enabled with either routing choice.
+    assert "Environment=PACKAGES_REGISTRY_V2_API_ENABLED=true" in TEMPLATE.render(settings)
+    api = rendered.split("location ^~ /api/ {", 1)[1].split("}", 1)[0]
+    assert "proxy_pass" in api
 
 
 def test_every_deploy_installs_locked_db_dependencies_before_promotion_runtime_check():
@@ -82,4 +109,5 @@ def test_production_inventory_manages_existing_v2_activation_explicitly():
         (ROLE.parents[1] / "inventory/group_vars/packages_registry.yml").read_text()
     )
     assert inventory["packages_registry_v2_api_enabled"] is True
-    assert "packages_registry_v1_db_compat_routing_enabled" not in inventory
+    assert inventory["packages_registry_v1_db_compat_enabled"] is True
+    assert inventory["packages_registry_v1_db_compat_routing_enabled"] is True

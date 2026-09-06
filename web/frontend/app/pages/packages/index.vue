@@ -110,7 +110,7 @@ usePageSeo(
             description="Bitte versuche es erneut."
           /><EmptyState
             v-else-if="!data?.items.length"
-            :title="`No Module gefunden${searchQuery ? ` for “${searchQuery}”` : ''}`"
+            :title="`Keine Module gefunden${searchQuery ? ` für „${searchQuery}“` : ''}`"
             description="Versuche einen anderen Suchbegriff oder entferne die Filter."
           />
           <div v-else class="border-y border-slate-200">

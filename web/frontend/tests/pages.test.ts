@@ -47,6 +47,21 @@ describe('DB-backed Package Hub pages', () => {
     }
     expect(packageFiltersToQuery(packageFiltersFromQuery(query))).toEqual(query)
   })
+  it.each([
+    ['/packages', 'Keine Module gefunden'],
+    ['/packages?q=unpublished', 'Keine Module gefunden für „unpublished“'],
+  ])('renders a German empty state at %s', async (route, title) => {
+    useNuxtApp().$api.packages = vi.fn().mockResolvedValue({
+      ...page,
+      items: [],
+      total: 0,
+    })
+    const wrapper = await mountSuspended(PackageListPage, { route })
+    expect(wrapper.get('.surface-card h2').text()).toBe(title)
+    expect(wrapper.get('.surface-card p').text()).toBe(
+      'Versuche einen anderen Suchbegriff oder entferne die Filter.',
+    )
+  })
   it('renders statistics 0.4.0 using explicit pointers, real license, digest, repository and empty states', async () => {
     const wrapper = await mountSuspended(PackageDetailPage, {
       route: '/packages/statistics',
