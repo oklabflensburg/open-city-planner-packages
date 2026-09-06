@@ -217,7 +217,7 @@ def test_forwarded_inventory_settings_keep_precedence(tmp_path):
                         "packages_registry_v2_api_enabled": True,
                         "packages_registry_v1_db_compat_enabled": True,
                         "packages_registry_v1_db_compat_routing_enabled": True,
-                        "ansible_password": "do-not-forward",
+                        "ansible_password": "NOT_A_SECRET_TEST_SENTINEL",
                     },
                 }
             }
