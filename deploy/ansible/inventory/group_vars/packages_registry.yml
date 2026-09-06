@@ -2,3 +2,6 @@
 # Non-secret production overrides belong here or in an external inventory.
 # Keep credentials and private SSH options outside this repository.
 ansible_python_interpreter: /usr/bin/python3
+# Production already serves Registry v2; manage activation through systemd rather
+# than a manually added flag in registry-db.env. The role default remains false.
+packages_registry_v2_api_enabled: true

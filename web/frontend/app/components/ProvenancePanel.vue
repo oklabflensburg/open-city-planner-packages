@@ -1,6 +1,107 @@
 <script setup lang="ts">
 import type { PackageDetail, PackageRelease } from '~/types/api'
+import {
+  safeUrl,
+  publicationDate,
+  installCommand,
+} from '~/lib/modulePresentation'
 defineProps<{ pkg: PackageDetail; release: PackageRelease }>()
 </script>
-
-<template><section><div class="flex items-baseline justify-between gap-4"><h2 class="text-xl font-bold">Provenance</h2><span class="text-xs font-semibold text-brand-700">Registry v1 metadata</span></div><dl class="mt-4 border-y border-slate-200 text-sm"><div class="metadata-row"><dt class="text-slate-500">Source</dt><dd><a :href="pkg.source_repository" class="text-link">GitHub repository ↗</a></dd></div><div class="metadata-row"><dt class="text-slate-500">Tag</dt><dd class="font-mono">{{ release.source_tag || 'Not provided' }}</dd></div><div class="metadata-row"><dt class="text-slate-500">Commit</dt><dd><CopyValue :value="release.source_commit" label="source commit" truncate /></dd></div><div class="metadata-row"><dt class="text-slate-500">SHA-256</dt><dd><CopyValue :value="release.artifact.sha256" label="SHA-256" truncate /></dd></div><div class="metadata-row"><dt class="text-slate-500">Artifact</dt><dd><CopyValue :value="release.artifact.url" label="artifact URL" truncate /></dd></div><div class="metadata-row"><dt class="text-slate-500">Registry</dt><dd class="font-semibold text-brand-700">Validated metadata</dd></div><div class="metadata-row"><dt class="text-slate-500">Artifact policy</dt><dd class="font-semibold text-brand-700">Immutable URL and digest</dd></div></dl><p class="mt-3 text-xs leading-5 text-slate-500">No per-release host-verifier attestation is exposed by this API, so no additional verification claim is shown.</p></section></template>
+<template>
+  <section class="version-evidence">
+    <h3>Version {{ release.version }}</h3>
+    <dl>
+      <div class="metadata-row">
+        <dt>Veröffentlicht</dt>
+        <dd>{{ publicationDate(release.published_at) }}</dd>
+      </div>
+      <div class="metadata-row">
+        <dt>Source tag</dt>
+        <dd>{{ release.source.tag || 'Nicht verfügbar' }}</dd>
+      </div>
+      <div class="metadata-row">
+        <dt>Source commit</dt>
+        <dd>
+          <CopyValue
+            :value="release.source.commit"
+            label="Source commit"
+            truncate
+          />
+        </dd>
+      </div>
+      <div class="metadata-row">
+        <dt>SHA-256</dt>
+        <dd>
+          <CopyValue
+            :value="release.artifact.sha256"
+            label="SHA-256"
+            truncate
+          />
+        </dd>
+      </div>
+      <div class="metadata-row">
+        <dt>Artifact</dt>
+        <dd>
+          <a
+            v-if="safeUrl(release.artifact.url)"
+            :href="safeUrl(release.artifact.url)"
+            download
+            class="text-link"
+            >{{ pkg.id }}-{{ release.version }}.ocp ↗</a
+          >
+        </dd>
+      </div>
+      <div class="metadata-row">
+        <dt>Bundle-Format</dt>
+        <dd>{{ release.bundle_format_version }}</dd>
+      </div>
+      <div class="metadata-row">
+        <dt>Requirements</dt>
+        <dd>
+          Host {{ release.compatibility.host }}<br />SDK
+          {{ release.compatibility.sdk }}
+        </dd>
+      </div>
+      <div class="metadata-row">
+        <dt>Abhängigkeiten</dt>
+        <dd>
+          {{
+            Object.keys(release.dependencies).length
+              ? release.dependencies
+              : 'Keine Abhängigkeiten deklariert.'
+          }}
+        </dd>
+      </div>
+      <div
+        v-for="[label, value] in [
+          ['Builder', release.provenance.builder_version],
+          ['Builder commit', release.provenance.builder_commit],
+          ['Host commit', release.provenance.host_commit],
+          [
+            'Reproducibility',
+            release.provenance.reproducible === null
+              ? null
+              : release.provenance.reproducible
+                ? 'Reproduzierbar'
+                : 'Nicht reproduzierbar',
+          ],
+          ['Host Contract', release.provenance.host_contract_status],
+        ]"
+        :key="String(label)"
+        class="metadata-row"
+      >
+        <dt>{{ label }}</dt>
+        <dd>{{ value ?? 'Nicht verfügbar' }}</dd>
+      </div>
+    </dl>
+    <details v-if="release.provenance.environment">
+      <summary>Provenance-Umgebung</summary>
+      <pre>{{ JSON.stringify(release.provenance.environment, null, 2) }}</pre>
+    </details>
+    <CopyValue
+      :value="installCommand(pkg.id, release)"
+      label="Reproduzierbaren Installationsbefehl"
+      block
+    />
+  </section>
+</template>

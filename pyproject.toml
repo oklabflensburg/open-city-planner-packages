@@ -59,3 +59,8 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+# Deploy executes modules from the immutable checkout. Install locked dependencies,
+# not the flat-layout repository as an editable distribution.
+[tool.uv]
+package = false

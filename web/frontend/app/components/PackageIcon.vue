@@ -1,5 +1,18 @@
 <script setup lang="ts">
-const props = defineProps<{ name: string; compact?: boolean }>()
-const initials = computed(() => props.name.split(/\s+/).map(word => word[0]).join('').slice(0, 2).toUpperCase())
+defineProps<{ name: string; compact?: boolean }>()
 </script>
-<template><span class="grid shrink-0 place-items-center rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 font-bold text-white shadow-sm" :class="compact ? 'size-10 text-xs' : 'size-12'" aria-hidden="true">{{ initials }}</span></template>
+<template>
+  <span class="module-icon" :class="{ compact }" aria-hidden="true"
+    ><svg
+      v-if="name.toLowerCase() === 'statistics'"
+      viewBox="0 0 40 40"
+      fill="currentColor"
+    >
+      <rect x="5" y="24" width="7" height="12" rx="2" />
+      <rect x="17" y="15" width="7" height="21" rx="2" />
+      <rect x="29" y="4" width="7" height="32" rx="2" /></svg
+    ><HubIcon
+      v-else
+      :name="name.toLowerCase().includes('search') ? 'search' : 'cube'"
+  /></span>
+</template>

@@ -1,10 +1,104 @@
 <script setup lang="ts">
-const route = useRoute()
-const id = String(route.params.publisherId)
+import { apiErrorStatus, safeUrl } from '~/lib/modulePresentation'
+definePageMeta({ key: (route) => route.path })
+const route = useRoute(),
+  id = String(route.params.publisherId)
 const { $api } = useNuxtApp()
-const { data: publisher, error } = await useAsyncData(`publisher-${id}`, () => $api.publisher(id))
-if (error.value || !publisher.value) throw createError({ statusCode: 404, statusMessage: 'Publisher not found' })
-usePageSeo(`${publisher.value.name} · Publishers`, `${publisher.value.name} packages in the Open City Planner Registry.`, `/publishers/${id}`)
+const offset = ref(0)
+const { data: publisher, error } = await useAsyncData(
+  `publisher-${id}`,
+  () => $api.publisher(id, offset.value),
+  {
+    watch: [offset],
+    getCachedData: (key, app) =>
+      app.isHydrating ? app.payload.data[key] : undefined,
+  },
+)
+if (error.value || !publisher.value)
+  throw createError({
+    statusCode: apiErrorStatus(error.value),
+    statusMessage: 'Publisher nicht verfügbar',
+  })
+const { data: registryModules, error: modulesError } = await useAsyncData(
+  'hub-modules',
+  () => $api.allModules(),
+  {
+    getCachedData: (key, app) =>
+      app.isHydrating ? app.payload.data[key] : undefined,
+  },
+)
+const publishedModules = computed(() =>
+  modulesError.value
+    ? []
+    : registryModules.value?.filter((module) => module.publisher.id === id) ||
+      [],
+)
+const versionCount = computed(() =>
+  modulesError.value || !registryModules.value
+    ? null
+    : publishedModules.value.reduce(
+        (sum, module) => sum + module.version_count,
+        0,
+      ),
+)
+const classifications = computed(() => [
+  ...new Set(publishedModules.value.map((module) => module.classification)),
+])
+usePageSeo(
+  `${publisher.value.name} – Open City Planner Package Hub`,
+  `Veröffentlichte Module von ${publisher.value.name}.`,
+  `/publishers/${id}`,
+)
 </script>
-
-<template><div v-if="publisher" class="container-shell py-8"><nav class="text-xs text-slate-500"><NuxtLink to="/publishers">Publishers</NuxtLink><span class="mx-2">/</span><span class="font-mono">{{ publisher.id }}</span></nav><header class="mt-6 flex flex-col gap-5 border-b border-slate-200 pb-7 sm:flex-row sm:items-center"><span class="grid size-14 place-items-center rounded-full bg-navy-950 text-xl font-bold text-white">{{ publisher.name.slice(0, 2).toUpperCase() }}</span><div class="min-w-0 flex-1"><h1 class="page-title">{{ publisher.name }}</h1><p class="mt-1 font-mono text-sm text-slate-500">{{ publisher.id }}</p><div class="mt-3 flex flex-wrap gap-2"><PackageBadge v-for="classification in publisher.classifications" :key="classification" :value="classification" /></div></div><p class="text-sm text-slate-500"><strong class="font-mono text-slate-900">{{ publisher.package_count }}</strong> packages · <strong class="font-mono text-slate-900">{{ publisher.release_count }}</strong> releases</p></header><section class="mt-8"><div class="flex items-baseline justify-between"><h2 class="text-2xl font-bold">Packages</h2><span class="text-xs text-slate-500">Published by {{ publisher.name }}</span></div><div class="mt-4 border-y border-slate-200"><PackageListItem v-for="pkg in publisher.packages" :key="pkg.id" :pkg="pkg" show-compatibility /></div></section></div></template>
+<template>
+  <div>
+    <HubHero />
+    <section v-if="publisher" class="container-shell py-8">
+      <nav class="breadcrumb">
+        <NuxtLink to="/publishers">Publisher</NuxtLink><span>›</span>{{ id }}
+      </nav>
+      <h2 class="page-title">{{ publisher.name }}</h2>
+      <p>
+        {{ publisher.id }} · {{ publisher.module_count }} Module ·
+        {{ versionCount ?? 'Nicht verfügbar' }} Versionen
+      </p>
+      <div class="my-4 flex flex-wrap gap-2">
+        <span
+          v-for="classification in classifications"
+          :key="classification"
+          class="channel-badge"
+          :class="{ stable: classification === 'first-party' }"
+          >{{
+            classification === 'first-party'
+              ? 'Offizielle Module'
+              : 'Geprüfte Community-Module'
+          }}</span
+        >
+      </div>
+      <details v-if="publishedModules.length" class="my-4">
+        <summary>Source-Repositories</summary>
+        <ul>
+          <li v-for="module in publishedModules" :key="module.id">
+            <a
+              v-if="safeUrl(module.source_repository)"
+              :href="safeUrl(module.source_repository)"
+              class="text-link"
+              >{{ module.id }} ↗</a
+            >
+          </li>
+        </ul>
+      </details>
+      <p v-if="error" role="alert">Module derzeit nicht verfügbar.</p>
+      <template v-else
+        ><PackageListItem
+          v-for="pkg in publisher.modules.items"
+          :key="pkg.id"
+          :pkg="pkg" /><Pagination
+          :total="publisher.modules.total"
+          :limit="publisher.modules.limit"
+          :offset="publisher.modules.offset"
+          @change="offset = $event"
+      /></template>
+    </section>
+  </div>
+</template>

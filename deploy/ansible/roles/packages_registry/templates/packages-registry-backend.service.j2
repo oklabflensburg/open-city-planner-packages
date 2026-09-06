@@ -8,9 +8,20 @@ User={{ packages_registry_service_user }}
 Group={{ packages_registry_service_group }}
 WorkingDirectory={{ packages_registry_current_path }}
 Environment=PACKAGES_REGISTRY_SOURCE={{ packages_registry_current_path }}/registry
-{% if packages_registry_v1_db_compat_enabled | default(false) %}
+{% set v2_enabled = (packages_registry_v2_api_enabled | default(false) | string | lower) in ['true', 'yes', '1', 'on'] %}
+{% set compat_enabled = (packages_registry_v1_db_compat_enabled | default(false) | string | lower) in ['true', 'yes', '1', 'on'] %}
+{% if v2_enabled or compat_enabled %}
 EnvironmentFile={{ packages_registry_database_environment_file }}
+{% endif %}
+{% if v2_enabled %}
+Environment=PACKAGES_REGISTRY_V2_API_ENABLED=true
+{% else %}
+UnsetEnvironment=PACKAGES_REGISTRY_V2_API_ENABLED
+{% endif %}
+{% if compat_enabled %}
 Environment=PACKAGES_REGISTRY_V1_DB_COMPAT_ENABLED=true
+{% else %}
+UnsetEnvironment=PACKAGES_REGISTRY_V1_DB_COMPAT_ENABLED
 {% endif %}
 ExecStart={{ packages_registry_current_path }}/.venv/bin/uvicorn web.backend.app.main:app --host 127.0.0.1 --port {{ packages_registry_backend_port }}
 Restart=on-failure

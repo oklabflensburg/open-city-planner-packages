@@ -244,12 +244,22 @@
 - name: Synchronize release dependencies from frozen lockfile
   ansible.builtin.command:
     argv: >-
-      {{ [packages_registry_uv_venv ~ '/bin/uv', 'sync', '--frozen'] +
-         (['--extra', 'registry-db'] if packages_registry_v1_db_compat_enabled | bool else []) }}
+      {{ [packages_registry_uv_venv ~ '/bin/uv', 'sync', '--frozen', '--extra', 'registry-db'] }}
     chdir: "{{ packages_registry_release_path }}"
   environment:
     UV_CACHE_DIR: "{{ packages_registry_uv_cache_dir }}"
   become_user: "{{ packages_registry_service_user }}"
+
+- name: Verify registry promotion runtime in the deployed virtual environment
+  ansible.builtin.command:
+    argv:
+      - "{{ packages_registry_release_path }}/.venv/bin/python"
+      - -m
+      - web.backend.app.registry_promote
+      - --help
+    chdir: "{{ packages_registry_release_path }}"
+  become_user: "{{ packages_registry_service_user }}"
+  changed_when: false
 
 - name: Install frontend dependencies from frozen lockfile
   ansible.builtin.command:
@@ -292,6 +302,17 @@
       - build
     chdir: "{{ packages_registry_release_path }}/web/frontend"
   become_user: "{{ packages_registry_service_user }}"
+
+- name: Test built Package Hub SSR against isolated Registry fixtures
+  ansible.builtin.command:
+    argv:
+      - node
+      - --test
+      - tests/ssr.mjs
+    chdir: "{{ packages_registry_release_path }}/web/frontend"
+  become_user: "{{ packages_registry_service_user }}"
+  changed_when: false
+  when: packages_registry_run_tests | bool
 
 - name: Lint package registry release
   ansible.builtin.command:
