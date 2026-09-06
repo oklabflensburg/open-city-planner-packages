@@ -353,3 +353,27 @@ The backend uses an externally provisioned private environment file; a DB URL al
 cannot switch public authority. Follow the
 [compatibility cutover runbook](../../docs/registry-v1-db-compatibility.md) before
 setting the routing flag. Merge/application deploy is not read or writer cutover.
+
+
+### Package Hub Registry v2 activation
+
+`packages_registry_v2_api_enabled` defaults to `false`. Set it explicitly to
+`true` to expose DB-backed `/api/v1/modules` and negotiated search/publishers.
+The production group variables explicitly set this switch to `true`, replacing
+the existing manual activation. The role default remains `false`. The new Package
+Hub requires this API switch; it never falls back to legacy JSON.
+The role loads `packages_registry_database_environment_file` when either v2 or
+v1 database compatibility is enabled. Keep only database connection settings in
+that root-owned file; remove the previously added manual
+`PACKAGES_REGISTRY_V2_API_ENABLED` entry when adopting the managed switch.
+Disabled flags are removed with systemd `UnsetEnvironment`, including stale
+entries in an EnvironmentFile. API activation and v1 compatibility routing remain
+independent; API activation does not route `/index.json` to the database.
+
+Every regular deploy runs `uv sync --frozen --extra registry-db`, regardless of
+read API switches, and checks `.venv/bin/python -m
+web.backend.app.registry_promote --help`. SQLAlchemy, psycopg and Alembic therefore
+exist for the promotion CLI without a manual install. The project is explicitly
+an uv non-package project; Python runs from the immutable release checkout,
+avoiding setuptools flat-layout editable package discovery. No global pip install,
+DB migration, promotion or production mutation is performed by this check.

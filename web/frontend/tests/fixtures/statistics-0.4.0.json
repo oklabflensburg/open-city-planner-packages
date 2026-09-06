@@ -1,0 +1,31 @@
+{
+  "artifact": {
+    "byte_size": 28555,
+    "sha256": "6bec701141f8c77dff4c4054ae095be31efe262f9cc3eab6414f68be57ae5423",
+    "storage_locator": "modules/statistics/0.4.0/statistics-0.4.0.ocp",
+    "url": "https://packages.stadtplaner.oklabflensburg.de/modules/statistics/0.4.0/statistics-0.4.0.ocp"
+  },
+  "bundle_format_version": 1,
+  "compatibility": {
+    "host": ">=0.2.0,<1.0.0",
+    "sdk": ">=1.15.0,<2.0.0"
+  },
+  "dependencies": {},
+  "historical_publication_channel": "stable",
+  "module_id": "statistics",
+  "provenance": {
+    "builder_commit": "e406fb2267e7e28eaba2f7e8384a876e9e10a2f8",
+    "builder_version": "1",
+    "environment": null,
+    "host_commit": null,
+    "host_contract_status": "passed",
+    "reproducible": true
+  },
+  "published_at": "2026-09-05T18:43:06.887270Z",
+  "source": {
+    "commit": "3cfce04b859e5f27481f5665adc4665ddc935dac",
+    "repository": "https://github.com/oklabflensburg/ocp-module-statistics",
+    "tag": "v0.4.0"
+  },
+  "version": "0.4.0"
+}

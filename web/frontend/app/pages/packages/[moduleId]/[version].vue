@@ -1,15 +1,65 @@
 <script setup lang="ts">
+import { apiErrorStatus } from '~/lib/modulePresentation'
+definePageMeta({ key: (route) => route.path })
 const route = useRoute()
-const id = String(route.params.moduleId)
-const versionId = String(route.params.version)
+const id = String(route.params.moduleId),
+  versionId = String(route.params.version)
 const { $api } = useNuxtApp()
-const [{ data: pkg, error: packageError }, { data: release, error: releaseError }] = await Promise.all([
-  useAsyncData(`package-${id}`, () => $api.package(id)),
-  useAsyncData(`package-${id}-${versionId}`, () => $api.version(id, versionId)),
+const [
+  { data: pkg, error: moduleError },
+  { data: release, error: versionError },
+] = await Promise.all([
+  useAsyncData(`module-${id}`, () => $api.package(id), {
+    getCachedData: (key, app) =>
+      app.isHydrating ? app.payload.data[key] : undefined,
+  }),
+  useAsyncData(`version-${id}-${versionId}`, () => $api.version(id, versionId)),
 ])
-if (packageError.value || releaseError.value || !pkg.value || !release.value) throw createError({ statusCode: 404, statusMessage: 'Version not found' })
-const dependencies = computed(() => Object.entries(release.value!.requires.modules))
-usePageSeo(`${pkg.value.name} ${release.value.version}`, `${pkg.value.name} ${release.value.version} artifact, compatibility and provenance.`, `/packages/${id}/${versionId}`)
+if (moduleError.value || versionError.value || !pkg.value || !release.value)
+  throw createError({
+    statusCode: apiErrorStatus(moduleError.value || versionError.value),
+    statusMessage: 'Version nicht verfügbar',
+  })
+usePageSeo(
+  `${pkg.value.name} ${release.value.version} – Open City Planner Package Hub`,
+  pkg.value.description || '',
+  `/packages/${id}/${versionId}`,
+)
 </script>
-
-<template><div v-if="pkg && release" class="container-shell py-7"><nav class="text-xs text-slate-500" aria-label="Breadcrumb"><NuxtLink to="/packages">Packages</NuxtLink><span class="mx-2">/</span><NuxtLink :to="`/packages/${pkg.id}`">{{ pkg.id }}</NuxtLink><span class="mx-2">/</span><span class="font-mono">{{ release.version }}</span></nav><header class="mt-6 flex flex-col gap-5 border-b border-slate-200 pb-7 sm:flex-row sm:items-start"><PackageIcon :name="pkg.name" /><div class="min-w-0 flex-1"><div class="flex flex-wrap items-center gap-3"><h1 class="page-title">{{ pkg.name }} <span class="font-mono">{{ release.version }}</span></h1><PackageBadge :value="release.channel" /></div><p class="mt-2 font-mono text-sm text-slate-500">{{ pkg.id }} · bundle v{{ release.bundle_format_version }}</p><p class="mt-4 max-w-3xl text-slate-600">{{ pkg.description }}</p></div><VersionSelector :module-id="pkg.id" :versions="pkg.versions" :selected="release.version" /></header><nav class="flex gap-6 overflow-x-auto border-b border-slate-200 text-sm font-semibold"><a href="#artifact" class="border-b-2 border-brand-500 py-3.5">Artifact</a><a href="#compatibility" class="py-3.5">Compatibility</a><a href="#dependencies" class="py-3.5">Dependencies</a><a href="#provenance" class="py-3.5">Provenance</a></nav><div class="mt-7 grid gap-8 lg:grid-cols-[minmax(0,7fr)_minmax(250px,3fr)]"><div class="grid gap-9"><section id="artifact"><h2 class="text-xl font-bold">Release artifact</h2><dl class="mt-3 border-y border-slate-200"><div class="metadata-row"><dt class="text-slate-500">Filename</dt><dd class="font-mono text-sm">{{ pkg.id }}-{{ release.version }}.ocp</dd></div><div class="metadata-row"><dt class="text-slate-500">SHA-256</dt><dd><CopyValue :value="release.artifact.sha256" label="SHA-256" truncate /></dd></div><div class="metadata-row"><dt class="text-slate-500">Artifact URL</dt><dd><CopyValue :value="release.artifact.url" label="artifact URL" truncate /></dd></div></dl></section><section id="compatibility"><h2 class="text-xl font-bold">Compatibility</h2><dl class="mt-3 border-y border-slate-200"><div class="metadata-row"><dt class="text-slate-500">Host</dt><dd class="font-mono text-sm">{{ release.requires.host }}</dd></div><div class="metadata-row"><dt class="text-slate-500">SDK</dt><dd class="font-mono text-sm">{{ release.requires.sdk }}</dd></div></dl></section><section id="dependencies"><h2 class="text-xl font-bold">Module dependencies</h2><p v-if="!dependencies.length" class="mt-3 text-slate-600">No module dependencies.</p><dl v-else class="mt-3 border-y border-slate-200"><div v-for="dependency in dependencies" :key="dependency[0]" class="metadata-row"><dt>{{ dependency[0] }}</dt><dd class="font-mono">{{ dependency[1] }}</dd></div></dl></section><ProvenancePanel id="provenance" :pkg="pkg" :release="release" /></div><PackageMetadataRail :pkg="pkg" :release="release" /></div></div></template>
+<template>
+  <div>
+    <HubHero />
+    <div v-if="pkg && release" class="container-shell detail-shell">
+      <nav class="breadcrumb" aria-label="Breadcrumb">
+        <NuxtLink to="/packages">Module</NuxtLink><span>›</span
+        ><NuxtLink :to="`/packages/${id}`">{{ id }}</NuxtLink
+        ><span>›</span>{{ release.version }}
+      </nav>
+      <div class="module-layout">
+        <ModuleNavigation :active="id" />
+        <article class="module-content">
+          <h2 class="page-title">{{ pkg.name }} {{ release.version }}</h2>
+          <p>{{ pkg.description }}</p>
+          <div class="version-label">
+            <template v-for="(target, channel) in pkg.channels" :key="channel"
+              ><span
+                v-if="target?.version === release.version"
+                class="channel-badge"
+                :class="channel"
+                >{{ channel }}</span
+              ></template
+            >
+          </div>
+          <ProvenancePanel :pkg="pkg" :release="release" />
+        </article>
+        <aside class="metadata-rail">
+          <DownloadCard :module-id="id" :release="release" />
+          <section class="info-card">
+            <h2>Lizenz</h2>
+            <p>{{ pkg.license }}</p>
+          </section>
+        </aside>
+      </div>
+    </div>
+  </div>
+</template>

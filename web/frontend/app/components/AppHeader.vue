@@ -1,8 +1,78 @@
 <script setup lang="ts">
 const menuOpen = ref(false)
 const route = useRoute()
-watch(() => route.fullPath, () => { menuOpen.value = false })
-function openPalette() { window.dispatchEvent(new Event('ocp:open-command-palette')) }
+watch(
+  () => route.fullPath,
+  () => {
+    menuOpen.value = false
+  },
+)
+const links = [
+  { label: 'Module', to: '/packages' },
+  { label: 'Publisher', to: '/publishers' },
+  { label: 'Dokumentation', to: '/docs' },
+  { label: 'Community', to: '/about' },
+]
 </script>
-
-<template><header class="sticky top-0 z-40 border-b border-white/10 bg-navy-950 text-white shadow-sm"><a href="#main-content" class="sr-only focus:not-sr-only">Skip to content</a><div class="container-shell flex h-16 items-center gap-4"><NuxtLink to="/" class="flex shrink-0 items-center gap-2 font-bold" aria-label="Open City Planner Packages home"><span class="grid size-8 place-items-center rounded-md border border-white/30 text-base" aria-hidden="true">⌬</span><span class="hidden text-sm leading-[1.05] sm:block">Open City Planner<br><span class="text-[11px] font-medium text-slate-300">Packages</span></span></NuxtLink><div class="hidden min-w-48 max-w-2xl flex-1 md:block"><GlobalPackageSearch compact /></div><nav class="ml-auto hidden items-center gap-4 text-sm font-medium lg:flex" aria-label="Primary navigation"><NuxtLink to="/packages" active-class="text-brand-500">Packages</NuxtLink><NuxtLink to="/publishers" active-class="text-brand-500">Publishers</NuxtLink><NuxtLink to="/docs" active-class="text-brand-500">Docs</NuxtLink><a href="https://github.com/oklabflensburg/open-city-planner-packages" rel="noreferrer" aria-label="GitHub repository">GitHub</a></nav><button type="button" class="ml-auto rounded-lg border border-white/20 px-2.5 py-2 text-sm md:hidden" aria-label="Open package search" @click="openPalette">⌕</button><button class="rounded-lg p-2 lg:hidden" type="button" :aria-expanded="menuOpen" aria-controls="mobile-menu" aria-label="Toggle navigation" @click="menuOpen = !menuOpen"><span aria-hidden="true" class="text-xl">{{ menuOpen ? '×' : '☰' }}</span></button></div><div v-if="menuOpen" id="mobile-menu" class="container-shell border-t border-white/10 py-3 lg:hidden"><button type="button" class="mb-2 flex w-full items-center justify-between rounded-lg bg-white px-3 py-3 text-left text-sm text-slate-500 md:hidden" @click="openPalette"><span>Search packages…</span><KeyboardHint :keys="['Ctrl', 'K']" /></button><nav class="grid grid-cols-2 gap-1 text-sm md:grid-cols-4" aria-label="Mobile navigation"><NuxtLink v-for="item in [['Packages','/packages'],['Publishers','/publishers'],['Docs','/docs'],['About','/about']]" :key="item[1]" :to="item[1]" class="rounded-lg px-3 py-2.5 hover:bg-white/10">{{ item[0] }}</NuxtLink></nav></div><SearchCommandPalette /></header></template>
+<template>
+  <header class="hub-header">
+    <a href="#main-content" class="sr-only focus:not-sr-only">Zum Inhalt</a>
+    <div class="header-inner">
+      <NuxtLink
+        to="/"
+        class="hub-brand"
+        aria-label="Open City Planner Package Hub Startseite"
+        ><img src="/logo.svg" width="36" height="43" alt="" /><span
+          ><strong>Open City Planner</strong><span>Package Hub</span></span
+        ></NuxtLink
+      >
+      <nav class="desktop-nav" aria-label="Hauptnavigation">
+        <NuxtLink v-for="link in links" :key="link.to" :to="link.to">{{
+          link.label
+        }}</NuxtLink>
+      </nav>
+      <GlobalPackageSearch compact class="header-search" />
+      <div class="header-controls">
+        <button
+          type="button"
+          disabled
+          aria-label="Darstellung – nicht verfügbar"
+          title="Darstellung nicht verfügbar"
+          class="appearance"
+        >
+          <HubIcon name="sun" /></button
+        ><button
+          type="button"
+          disabled
+          aria-label="Sprache Deutsch – Sprachwahl nicht verfügbar"
+          class="language"
+        >
+          DE⌄</button
+        ><button
+          type="button"
+          disabled
+          class="login-button"
+          title="Anmeldung nicht verfügbar"
+        >
+          Anmelden
+        </button>
+      </div>
+      <button
+        type="button"
+        class="mobile-menu-button"
+        :aria-expanded="menuOpen"
+        aria-controls="mobile-menu"
+        aria-label="Navigation öffnen"
+        @click="menuOpen = !menuOpen"
+      >
+        ☰
+      </button>
+    </div>
+    <nav v-if="menuOpen" id="mobile-menu" aria-label="Mobile Navigation">
+      <NuxtLink v-for="link in links" :key="link.to" :to="link.to">{{
+        link.label
+      }}</NuxtLink>
+    </nav>
+    <SearchCommandPalette />
+  </header>
+</template>

@@ -1,46 +1,71 @@
 export type Classification = 'first-party' | 'reviewed-community'
 export type Channel = 'stable' | 'beta' | 'nightly'
-
-export interface Publisher { id: string; name: string }
-export interface Compatibility { host: string; sdk: string; modules: Record<string, string> }
-export interface Artifact { url: string; sha256: string }
-export interface PackageRelease {
-  version: string
-  channel: Channel
-  artifact: Artifact
-  bundle_format_version: number
-  source_commit: string
-  source_tag?: string | null
-  requires: Compatibility
+export interface Publisher {
+  id: string
+  name: string
 }
+export interface ChannelTarget {
+  version: string
+  sha256: string
+}
+export type Channels = Partial<Record<Channel, ChannelTarget>>
 export interface PackageSummary {
   id: string
   name: string
-  description?: string | null
+  description: string | null
   publisher: Publisher
   classification: Classification
-  latest_version: string
-  latest_channel: Channel
-  compatibility: Compatibility
-  channels: Channel[]
+  license: string
+  source_repository: string
+  homepage: string | null
+  documentation_url: string | null
+  stable_version: string | null
+  channels: Channels
+  version_count: number
 }
 export interface PackageDetail extends PackageSummary {
-  source_repository: string
-  license: string
-  homepage?: string | null
-  documentation_url?: string | null
-  versions: PackageRelease[]
+  versions_url: string
 }
-export interface PackagePage { items: PackageSummary[]; total: number; limit: number; offset: number }
-export interface SearchResult extends PackagePage { query: string }
-export interface PublisherSummary {
-  id: string
-  name: string
-  classifications: Classification[]
-  package_count: number
-  release_count: number
+export interface PackageRelease {
+  module_id: string
+  version: string
+  historical_publication_channel: Channel
+  bundle_format_version: number
+  artifact: {
+    url: string
+    sha256: string
+    byte_size: number | null
+    storage_locator: string | null
+  }
+  source: { repository: string; tag: string | null; commit: string }
+  compatibility: { host: string; sdk: string }
+  dependencies: Record<string, string>
+  published_at: string | null
+  provenance: {
+    builder_version: string | null
+    builder_commit: string | null
+    host_commit: string | null
+    reproducible: boolean | null
+    host_contract_status: 'passed' | 'failed' | null
+    environment: Record<string, unknown> | null
+  }
 }
-export interface PublisherDetail extends PublisherSummary { packages: PackageSummary[] }
+export interface RegistryPage<T> {
+  items: T[]
+  total: number
+  limit: number
+  offset: number
+}
+export type PackagePage = RegistryPage<PackageSummary>
+export interface SearchResult extends PackagePage {
+  query: string
+}
+export interface PublisherSummary extends Publisher {
+  module_count: number
+}
+export interface PublisherDetail extends PublisherSummary {
+  modules: PackagePage
+}
 export interface PackageFilters {
   q?: string
   publisher?: string

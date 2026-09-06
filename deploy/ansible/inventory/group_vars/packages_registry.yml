@@ -2,3 +2,8 @@
 # Non-secret production overrides belong here or in an external inventory.
 # Keep credentials and private SSH options outside this repository.
 ansible_python_interpreter: /usr/bin/python3
+# The database is already the production Registry read authority for v1 and v2.
+# Persist all three read switches; the independent role defaults remain false.
+packages_registry_v2_api_enabled: true
+packages_registry_v1_db_compat_enabled: true
+packages_registry_v1_db_compat_routing_enabled: true

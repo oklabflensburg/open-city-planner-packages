@@ -1,0 +1,23 @@
+{
+  "channels": {
+    "stable": {
+      "sha256": "6bec701141f8c77dff4c4054ae095be31efe262f9cc3eab6414f68be57ae5423",
+      "version": "0.4.0"
+    }
+  },
+  "classification": "first-party",
+  "description": "Municipal statistics query service for Open City Planner modules.",
+  "documentation_url": null,
+  "homepage": null,
+  "id": "statistics",
+  "license": "AGPL-3.0-only",
+  "name": "Statistics",
+  "publisher": {
+    "id": "oklabflensburg",
+    "name": "OK Lab Flensburg"
+  },
+  "source_repository": "https://github.com/oklabflensburg/ocp-module-statistics",
+  "stable_version": "0.4.0",
+  "version_count": 3,
+  "versions_url": "/api/v1/modules/statistics/versions"
+}

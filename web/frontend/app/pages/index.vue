@@ -1,13 +1,36 @@
 <script setup lang="ts">
 const { $api } = useNuxtApp()
-const { data } = await useAsyncData('featured-packages', () => $api.packages({ limit: 6, sort: 'name' }))
-usePageSeo('Open City Planner Packages', 'Find verified, compatible and immutable Open City Planner modules.', '/')
-const trustSignals = [
-  ['Verified metadata', 'Validated Registry v1 contracts'],
-  ['Immutable artifacts', 'Digest-bound .ocp releases'],
-  ['Host compatibility', 'Requirements visible before download'],
-  ['Open provenance', 'Source, tag and commit attached'],
-]
+const { data, error } = await useAsyncData('featured-modules', () =>
+  $api.modules({ limit: 6 }),
+)
+usePageSeo(
+  'Open City Planner Package Hub',
+  'Module für offene Stadtplanung. Entdecke Module, Versionen und Publisher für den Open City Planner.',
+  '/',
+)
 </script>
-
-<template><div><section class="border-b border-slate-200 bg-white"><div class="container-shell grid gap-10 py-12 lg:grid-cols-[minmax(0,1fr)_280px] lg:py-16"><div class="max-w-3xl"><p class="eyebrow">Registry v1 package explorer</p><h1 class="mt-3 text-4xl font-bold tracking-tight text-navy-950 sm:text-5xl">Find verified modules for<br><span class="text-brand-600">Open City Planner.</span></h1><p class="mt-4 max-w-2xl text-lg text-slate-600">Search packages, check compatibility and provenance, then download the immutable <code>.ocp</code> release.</p><div class="mt-7 max-w-2xl"><GlobalPackageSearch prominent /></div><p class="mt-3 text-sm text-slate-500"><strong class="text-slate-800">{{ data?.total || 0 }} {{ data?.total === 1 ? 'package' : 'packages' }}</strong> · Registry v1 · First-party and reviewed modules</p></div><aside class="hidden border-l border-slate-200 pl-7 lg:block"><p class="muted-label">Keyboard first</p><dl class="mt-4 grid gap-4 text-sm"><div><dt class="font-semibold">Focus search</dt><dd class="mt-1 text-slate-500"><KeyboardHint :keys="['/']" /></dd></div><div><dt class="font-semibold">Command palette</dt><dd class="mt-1 flex items-center gap-2 text-slate-500"><KeyboardHint :keys="['Ctrl', 'K']" /> or <KeyboardHint :keys="['⌘', 'K']" /></dd></div><div><dt class="font-semibold">Navigate results</dt><dd class="mt-1 text-slate-500">↑ ↓ then Enter</dd></div></dl></aside></div></section><section class="container-shell py-10"><div class="flex items-end justify-between gap-4"><div><p class="eyebrow">Package discovery</p><h2 class="mt-1 text-2xl font-bold">Featured and recent packages</h2></div><NuxtLink to="/packages" class="text-link shrink-0">View all →</NuxtLink></div><div class="mt-5 border-y border-slate-200"><PackageListItem v-for="pkg in data?.items || []" :key="pkg.id" :pkg="pkg" /></div></section><section class="container-shell pb-5"><div class="grid border-y border-slate-200 sm:grid-cols-2 lg:grid-cols-4"><article v-for="(signal, index) in trustSignals" :key="signal[0]" class="px-1 py-5 sm:px-5" :class="index ? 'sm:border-l sm:border-slate-200' : ''"><h2 class="text-sm font-bold">{{ signal[0] }}</h2><p class="mt-1 text-xs leading-5 text-slate-500">{{ signal[1] }}</p></article></div></section></div></template>
+<template>
+  <div>
+    <HubHero />
+    <section class="container-shell py-8">
+      <div class="flex items-center justify-between">
+        <h2 class="page-title">Module entdecken</h2>
+        <NuxtLink to="/packages" class="text-link">Alle Module →</NuxtLink>
+      </div>
+      <EmptyState
+        v-if="error"
+        title="Registry API nicht verfügbar"
+        description="Bitte versuche es später erneut."
+      /><EmptyState
+        v-else-if="!data?.items.length"
+        title="Keine Module veröffentlicht"
+        description="Hier erscheinen veröffentlichte Module."
+      /><PackageListItem
+        v-for="pkg in data?.items"
+        v-else
+        :key="pkg.id"
+        :pkg="pkg"
+      />
+    </section>
+  </div>
+</template>

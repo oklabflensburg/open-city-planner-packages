@@ -1,68 +1,36 @@
-# Package explorer
+# Package Hub
 
-The public web application keeps Registry v1 authoritative:
+The public application reads the PostgreSQL-backed Registry API:
 
 ```text
-registry/modules/*.json → read-only FastAPI API → Nuxt SSR explorer
+Nuxt SSR / Browser → Registry API → PostgreSQL Registry
 ```
 
-`backend/` contains the FastAPI application, Pydantic v2 response contracts and
-an in-memory repository/search layer. It uses the existing Registry loader and
-never writes Registry metadata. `frontend/` contains the Nuxt 4, Vue 3,
-Tailwind CSS 4 and TypeScript application. All data access goes through its
-central API client.
+`frontend/` contains Nuxt 4, Vue 3, Tailwind CSS 4 and TypeScript. Its central API
+client negotiates Registry v2 for shared search/publisher routes and reads explicit
+channel targets and immutable versions. Legacy endpoints remain for existing
+consumers; the Package Hub does not use them as its data source.
 
 ## Local development
 
-Install the locked dependencies from the repository root:
+Install locked dependencies with `uv sync --frozen --extra registry-db` and
+`pnpm install --frozen-lockfile` in `web/frontend`. See
+[Registry v2](../docs/registry-api-v2.md) for local database setup. Start the API
+with the v2 flag and a configured local `PACKAGES_REGISTRY_DATABASE_URL`:
 
 ```bash
-uv sync --frozen
-cd web/frontend
-pnpm install --frozen-lockfile
+PACKAGES_REGISTRY_V2_API_ENABLED=true uv run --extra registry-db uvicorn web.backend.app.main:app --reload --port 8000
 ```
 
-Run the API from the repository root:
+Run `pnpm dev` in `web/frontend`. The browser API defaults to
+`http://localhost:8000/api`; SSR uses `http://127.0.0.1:8000/api`. Override them with
+`NUXT_PUBLIC_API_BASE` and `NUXT_API_BASE_INTERNAL`. Validation and runtime behavior
+are documented in [frontend/README.md](frontend/README.md).
 
-```bash
-uv run uvicorn web.backend.app.main:app --reload --port 8000
-```
+## Production
 
-In another terminal, run the frontend:
-
-```bash
-cd web/frontend
-pnpm dev
-```
-
-The local browser API base defaults to `http://localhost:8000/api`; SSR uses
-`http://127.0.0.1:8000/api`. Override them with `NUXT_PUBLIC_API_BASE` and
-`NUXT_API_BASE_INTERNAL` respectively.
-
-## Validation
-
-```bash
-uv run ruff check .
-uv run pytest
-cd web/frontend
-pnpm typecheck
-pnpm test
-pnpm build
-```
-
-## Production routing
-
-Nginx preserves the Registry v1 URLs and routes the application separately:
-
-```text
-/                          Nuxt SSR
-/api/                      FastAPI
-/index.json                static Registry index
-/modules/*.json            static Registry metadata
-/modules/.../*.ocp         immutable artifact mirror
-```
-
-Both application processes run unprivileged under systemd and read the same
-immutable `releases/<git-sha>` directory selected by the existing atomic
-`current` symlink. Deployment details are in
-[deploy/ansible/README.md](../deploy/ansible/README.md).
+Nginx proxies `/` to Nuxt and `/api/` to FastAPI. Existing `/index.json`, module
+JSON and immutable artifact routes remain compatible. Both application processes
+run unprivileged from the immutable release directory. Explicit API activation and
+DB runtime installation are described in
+[the Ansible documentation](../deploy/ansible/README.md).
