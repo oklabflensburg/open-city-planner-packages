@@ -98,3 +98,25 @@ and avoids exception details in exchange failure logs. The two reference central
 provider flows do not use PKCE; no unrelated federated-provider flow was ported.
 Production callbacks are the public origin followed by
 `/api/v1/auth/oauth/github/callback` and `/api/v1/auth/oauth/google/callback`.
+
+## MFA, passkeys and self-service (#66)
+
+The reference MFA and WebAuthn services are ported, including Fernet-encrypted
+TOTP secrets, last-counter replay prevention, HMAC recovery hashes, single-use
+challenges, bounded attempts, expiry, row locking, security audit events and
+recent-auth checks. Local and OAuth login do not issue a session until the
+configured second factor succeeds. Recovery codes are displayed once and never
+stored as plaintext. Enabling/changing MFA revokes other refresh sessions;
+disabling MFA revokes all refresh sessions.
+
+Routes cover `/auth/mfa/security`, `/auth/mfa/totp/setup`, `/auth/mfa/totp/confirm`,
+`/auth/mfa/verify`, `/auth/mfa/challenge`, `/auth/mfa/recovery-codes`, DELETE
+`/auth/mfa/totp`, and passkey registration, passwordless login, MFA and reauth
+options/verification. `/users/me/passkeys` supports listing, renaming and removal.
+WebAuthn verifies RP ID, origin, challenge, user verification and ceremony binding.
+The reference's handling of synced credential counters is retained.
+
+Account deactivation and deletion use the reference confirmation/password/recent
+auth guards. Only auth data is affected; Registry tables have no user foreign keys
+and remain untouched. Provider avatar metadata is retained in provider records;
+no remote avatar fetch or city-specific avatar storage is introduced.

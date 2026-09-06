@@ -27,6 +27,7 @@ from web.backend.app.auth.recent_auth import require_recent_auth
 from web.backend.app.auth.schemas.auth import VerificationResponse
 from web.backend.app.auth.schemas.oauth import OAuthEmailCompletionRequest, OAuthProviderRead
 from web.backend.app.auth.services.auth_service import complete_oauth_email, issue_session
+from web.backend.app.auth.services.mfa_service import available_mfa_methods, create_login_challenge
 from web.backend.app.auth.services.oauth_account_service import (
     authenticate_oauth_identity,
     get_for_user_provider,
@@ -214,6 +215,27 @@ async def oauth_callback(
         if user.email_pending
         else safe_redirect_path(flow.redirect_path)
     )
+    methods = await available_mfa_methods(session, user.id)
+    if methods:
+        challenge = await create_login_challenge(
+            session, user, request, primary_method=f"oauth:{provider}", redirect_path=redirect_path
+        )
+        mfa_query = urllib.parse.urlencode({"redirect": redirect_path})
+        redirect_response = RedirectResponse(
+            f"{settings.app_base_url.rstrip('/')}/auth/mfa?{mfa_query}", status_code=302
+        )
+        redirect_response.set_cookie(
+            settings.auth_mfa_cookie_name,
+            challenge.token,
+            httponly=True,
+            secure=settings.auth_cookie_secure,
+            samesite="lax",
+            max_age=settings.mfa_challenge_expire_seconds,
+            path="/api/v1/auth/mfa",
+            domain=settings.auth_cookie_domain,
+        )
+        clear_oauth_cookie(redirect_response, provider)
+        return redirect_response
     callback_query = urllib.parse.urlencode({"redirect": redirect_path})
     redirect_response = RedirectResponse(f"{callback_url}?{callback_query}", status_code=302)
     await issue_session(session, redirect_response, user, request, amr=["oauth"])
