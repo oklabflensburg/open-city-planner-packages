@@ -4,6 +4,9 @@
     that:
       - not (packages_registry_v1_db_compat_routing_enabled | bool) or (packages_registry_v1_db_compat_enabled | bool)
       - packages_registry_database_environment_file is match('^/[a-zA-Z0-9_./-]+$')
+      - packages_registry_auth_environment_file is match('^/etc/[a-zA-Z0-9_./-]+$')
+      - "'..' not in packages_registry_auth_environment_file.split('/')"
+      - packages_registry_auth_environment_file != packages_registry_database_environment_file
       - packages_registry_release_retention | int >= 2
       - packages_registry_min_release_free_bytes | int > 0
       - packages_registry_service_user != 'root'
@@ -244,7 +247,7 @@
 - name: Synchronize release dependencies from frozen lockfile
   ansible.builtin.command:
     argv: >-
-      {{ [packages_registry_uv_venv ~ '/bin/uv', 'sync', '--frozen', '--extra', 'registry-db'] }}
+      {{ [packages_registry_uv_venv ~ '/bin/uv', 'sync', '--frozen', '--extra', 'registry-db', '--extra', 'auth'] }}
     chdir: "{{ packages_registry_release_path }}"
   environment:
     UV_CACHE_DIR: "{{ packages_registry_uv_cache_dir }}"
@@ -260,6 +263,10 @@
     chdir: "{{ packages_registry_release_path }}"
   become_user: "{{ packages_registry_service_user }}"
   changed_when: false
+
+- name: Check opt-in auth production prerequisites
+  ansible.builtin.include_tasks: auth_preflight.yml
+  when: packages_registry_auth_enabled | bool
 
 - name: Install frontend dependencies from frozen lockfile
   ansible.builtin.command:
@@ -615,6 +622,16 @@
       retries: 10
       delay: 2
       until: packages_registry_process_smoke.status == 200
+
+    - name: Require healthy auth before proxy activation
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ packages_registry_backend_port }}/health/auth"
+        status_code: 200
+      register: packages_registry_auth_smoke
+      retries: 10
+      delay: 2
+      until: packages_registry_auth_smoke.status == 200
+      when: packages_registry_auth_enabled | bool
 
     - name: Validate nginx configuration after release switch
       ansible.builtin.command:

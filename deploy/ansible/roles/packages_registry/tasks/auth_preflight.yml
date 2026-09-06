@@ -1,0 +1,45 @@
+---
+- name: Inspect existing auth environment file without reading secrets
+  ansible.builtin.stat:
+    path: "{{ packages_registry_auth_environment_file }}"
+    follow: false
+    get_checksum: false
+    get_mime: false
+  register: packages_registry_auth_environment_stat
+  no_log: true
+
+- name: Require root-owned private auth environment file
+  ansible.builtin.assert:
+    that:
+      - packages_registry_auth_environment_stat.stat.exists
+      - packages_registry_auth_environment_stat.stat.isreg
+      - not packages_registry_auth_environment_stat.stat.islnk
+      - packages_registry_auth_environment_stat.stat.uid == 0
+      - packages_registry_auth_environment_stat.stat.mode in ['0600', '0400']
+    fail_msg: Auth requires an existing root-owned private EnvironmentFile.
+  no_log: true
+
+- name: Verify auth production configuration and existing schema without writes
+  ansible.builtin.command:
+    argv:
+      - systemd-run
+      - --quiet
+      - --wait
+      - --pipe
+      - --collect
+      - "--unit=packages-registry-auth-preflight-{{ packages_registry_release_sha }}"
+      - "--property=User={{ packages_registry_service_user }}"
+      - "--property=Group={{ packages_registry_service_group }}"
+      - "--property=WorkingDirectory={{ packages_registry_release_path }}"
+      - "--property=EnvironmentFile={{ packages_registry_auth_environment_file }}"
+      - --property=NoNewPrivileges=yes
+      - --property=ProtectSystem=strict
+      - --setenv=AUTH_ENABLED=true
+      - --setenv=APP_ENVIRONMENT=production
+      - "{{ packages_registry_release_path }}/.venv/bin/python"
+      - -m
+      - web.backend.app.auth.preflight
+      - --expected-origin
+      - "https://{{ packages_registry_domain }}"
+  changed_when: false
+  no_log: true

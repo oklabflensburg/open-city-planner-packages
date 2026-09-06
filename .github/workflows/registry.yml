@@ -150,6 +150,56 @@ jobs:
         working-directory: web/frontend
         run: pnpm test:ssr
 
+  authentication:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18.6
+        env:
+          POSTGRES_USER: auth_test
+          POSTGRES_DB: auth_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U auth_test -d auth_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PACKAGES_REGISTRY_TEST_DATABASE_URL: postgresql+psycopg://auth_test@127.0.0.1:5432/auth_test
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Install pinned uv and auth dependencies
+        run: |
+          python -m pip install "uv==0.12.5"
+          uv sync --frozen --extra auth
+      - name: Test auth migrations, sessions, providers, factors and production gates
+        run: uv run --frozen --extra auth pytest web/backend/auth_tests web/backend/db_tests/test_auth_persistence.py
+      - name: Set up pinned Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.22.3"
+      - name: Set up pinned pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.22.0
+          run_install: false
+      - name: Build auth browser test application
+        working-directory: web/frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium
+          pnpm build
+      - name: Test real local auth, SSR confidentiality and signed WebAuthn ceremonies
+        run: uv run --frozen --extra auth python -m scripts.run_auth_e2e
+
   artifact-verification:
     if: github.event_name == 'pull_request'
     needs: validate
@@ -243,6 +293,7 @@ jobs:
   deploy-production:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.application-changes.outputs.deploy == 'true'
     needs:
+      - authentication
       - validate
       - ansible
       - web

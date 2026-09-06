@@ -25,8 +25,8 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_issuer: str = "http://localhost:8000"
     jwt_audience: str = "package-hub"
-    oauth_state_secret: str = DEVELOPMENT_OAUTH_STATE_SECRET
-    mfa_recovery_pepper: str = DEVELOPMENT_MFA_RECOVERY_PEPPER
+    oauth_state_secret: str = Field(default=DEVELOPMENT_OAUTH_STATE_SECRET, repr=False)
+    mfa_recovery_pepper: str = Field(default=DEVELOPMENT_MFA_RECOVERY_PEPPER, repr=False)
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 30
     refresh_token_reuse_grace_seconds: int = 5
@@ -48,14 +48,14 @@ class Settings(BaseSettings):
     smtp_host: str | None = None
     smtp_port: int = 587
     smtp_username: str | None = None
-    smtp_password: str | None = None
+    smtp_password: str | None = Field(default=None, repr=False)
     smtp_from_email: str = "noreply@example.org"
     smtp_from_name: str = "OK Lab Flensburg"
     smtp_use_tls: bool = True
     github_client_id: str | None = None
-    github_client_secret: str | None = None
+    github_client_secret: str | None = Field(default=None, repr=False)
     google_client_id: str | None = None
-    google_client_secret: str | None = None
+    google_client_secret: str | None = Field(default=None, repr=False)
     oauth_redirect_base_url: str | None = None
     auth_rate_limit_attempts: int = 8
     auth_rate_limit_window_seconds: int = 300
@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     rate_limit_fail_closed: bool = False
     rate_limit_memory_max_keys: int = Field(default=10000, ge=100, le=100000)
     trusted_proxies: str = ""
-    mfa_encryption_key: str | None = None
+    mfa_encryption_key: str | None = Field(default=None, repr=False)
     mfa_challenge_expire_seconds: int = Field(default=300, ge=60, le=900)
     mfa_max_attempts: int = Field(default=5, ge=3, le=10)
     mfa_totp_issuer: str = "Package Hub - OK Lab Flensburg"
@@ -99,6 +99,41 @@ class Settings(BaseSettings):
         return [value.strip() for value in self.trusted_proxies.split(",") if value.strip()]
 
     def validate_security(self) -> None:
+        if self.auth_cookie_samesite not in {"lax", "strict"}:
+            raise RuntimeError("AUTH_COOKIE_SAMESITE must be lax or strict")
+        if self.auth_cookie_path != "/":
+            raise RuntimeError("AUTH_COOKIE_PATH must be / for SSR")
+        if self.email_backend not in {"smtp", "console"}:
+            raise RuntimeError("EMAIL_BACKEND must be smtp or console")
+        if self.production and (self.email_backend != "smtp" or not self.smtp_host):
+            raise RuntimeError("Production auth requires SMTP delivery")
+        if self.production and (not self.smtp_use_tls or not self.mfa_encryption_key):
+            raise RuntimeError("Production auth requires SMTP TLS and MFA encryption")
+        if self.production and self.jwt_issuer == "http://localhost:8000":
+            raise RuntimeError("Production auth requires its own JWT_ISSUER")
+        for name, value in [
+            ("API_BASE_URL", self.api_base_url),
+            ("OAUTH_REDIRECT_BASE_URL", self.oauth_redirect_base_url),
+        ]:
+            if value is None:
+                continue
+            parsed = urlsplit(value)
+            if (
+                parsed.scheme not in {"http", "https"}
+                or not parsed.hostname
+                or parsed.username
+                or parsed.password
+                or parsed.path not in {"", "/"}
+                or parsed.query
+                or parsed.fragment
+                or (self.production and parsed.scheme != "https")
+            ):
+                raise RuntimeError(f"{name} must be an absolute trusted origin")
+        for provider in ("github", "google"):
+            if bool(getattr(self, f"{provider}_client_id")) != bool(
+                getattr(self, f"{provider}_client_secret")
+            ):
+                raise RuntimeError(f"Configure both {provider} client fields or neither")
         if self.production and (
             self.jwt_secret_key == DEVELOPMENT_JWT_SECRET
             or len(self.jwt_secret_key.strip()) < MINIMUM_JWT_SECRET_LENGTH
@@ -182,7 +217,7 @@ class Settings(BaseSettings):
         return providers
 
     auth_database_url: str = Field(default="", repr=False)
-    model_config = SettingsConfigDict(extra="ignore")
+    model_config = SettingsConfigDict(extra="ignore", hide_input_in_errors=True)
 
 
 @lru_cache

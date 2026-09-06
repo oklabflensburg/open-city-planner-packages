@@ -127,7 +127,13 @@ def test_production_deploy_runs_only_after_successful_main_ci() -> None:
         "github.event_name == 'push' && github.ref == 'refs/heads/main' "
         "&& needs.application-changes.outputs.deploy == 'true'"
     )
-    assert set(deploy["needs"]) == {"validate", "ansible", "web", "application-changes"}
+    assert set(deploy["needs"]) == {
+        "validate",
+        "ansible",
+        "web",
+        "application-changes",
+        "authentication",
+    }
     assert deploy["environment"] == {"name": "production"}
     assert deploy["permissions"] == {"contents": "read"}
     assert deploy["concurrency"] == {
@@ -245,3 +251,14 @@ def test_deploy_classifier_keeps_data_operations_independent():
     assert "github.event.before" in yaml.safe_dump(classifier)
     assert "github.sha" in yaml.safe_dump(classifier)
     assert "paths-ignore" not in workflow_source()  # CI still checks data-only pushes.
+
+
+def test_auth_job_uses_disposable_database_and_real_browser_gate():
+    auth = workflow()["jobs"]["authentication"]
+    assert auth["services"]["postgres"]["env"]["POSTGRES_HOST_AUTH_METHOD"] == "trust"
+    assert "PACKAGES_REGISTRY_TEST_DATABASE_URL" in auth["env"]
+    commands = "\n".join(step.get("run", "") for step in auth["steps"])
+    assert "--frozen --extra auth pytest web/backend/auth_tests" in commands
+    assert "python -m scripts.run_auth_e2e" in commands
+    assert "playwright install --with-deps chromium" in commands
+    assert "secrets." not in str(auth)

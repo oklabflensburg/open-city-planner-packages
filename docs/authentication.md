@@ -162,3 +162,100 @@ uv sync --frozen --extra auth
 # In web/frontend: pnpm install --frozen-lockfile; pnpm exec playwright install chromium; pnpm build
 PACKAGES_REGISTRY_TEST_DATABASE_URL=... uv run --frozen --extra auth python -m scripts.run_auth_e2e
 ```
+
+## Production activation and safety gates (#68)
+
+Auth stays off by default (`packages_registry_auth_enabled: false`). Deployment
+installs the frozen auth dependency extra, but does not create a database, run
+migrations, provision a limiter/mail service, create secrets or activate providers.
+Production inventory is unchanged.
+
+Provision `/etc/open-city-planner-packages/auth.env` out of band, owned by root,
+mode `0600` or `0400`, as a regular file, not a symlink. The backend's systemd
+manager reads this file before dropping privileges. Frontend receives only
+`NUXT_PUBLIC_AUTH_ENABLED` and its existing public/internal API origins. No
+credential contents pass through Ansible variables, facts or `settings.json`.
+Only the activation boolean and EnvironmentFile path use Registry deployment vars.
+Secret-related preflight tasks are `no_log`.
+
+Required production configuration:
+
+- `AUTH_DATABASE_URL`: same PostgreSQL database, dedicated auth runtime role with
+  CRUD grants on auth tables, SELECT on `auth_alembic_version`, and no Registry
+  write privileges. Use a separate owner/migration role for schema changes.
+- `APP_ENVIRONMENT=production`, `AUTH_ENABLED=true`, `APP_BASE_URL`, `API_BASE_URL`,
+  `JWT_ISSUER`: `https://packages.stadtplaner.oklabflensburg.de`;
+  `JWT_AUDIENCE=package-hub`.
+- Independent random `AUTH_SECRET`, `OAUTH_STATE_SECRET`, `MFA_RECOVERY_PEPPER`
+  (at least 32 characters each); `MFA_ENCRYPTION_KEY` generated with Fernet.
+  Back up these securely; losing the encryption key prevents decrypting enrolled
+  authenticators. Rotating JWT/recovery keys invalidates their existing credentials.
+- `AUTH_COOKIE_SECURE=true`, `AUTH_COOKIE_SAMESITE=lax`,
+  `REFRESH_REQUIRE_ORIGIN=true`; leave `AUTH_COOKIE_DOMAIN` unset for host-only
+  cookies. `CORS_ORIGINS` contains the public HTTPS origin. `TRUSTED_PROXIES` must
+  identify only the actual trusted proxy peer, typically `127.0.0.1/32` here.
+- `WEBAUTHN_RP_ID=packages.stadtplaner.oklabflensburg.de`,
+  `WEBAUTHN_ORIGIN=https://packages.stadtplaner.oklabflensburg.de` and an RP name.
+- `EMAIL_BACKEND=smtp`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM_EMAIL`, `SMTP_FROM_NAME`,
+  `SMTP_USE_TLS=true`, and the provider's `SMTP_USERNAME`/`SMTP_PASSWORD` if needed.
+- `AUTH_RATE_LIMIT_BACKEND=redis`, `REDIS_ENABLED=true`, `REDIS_URL` for the existing
+  service, `RATE_LIMIT_FAIL_CLOSED=true`. Use a dedicated `CACHE_PREFIX` per Hub
+  environment.
+- For each enabled provider, both `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` or
+  `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`. The callbacks are the public origin plus
+  `/api/v1/auth/oauth/github/callback` and `/api/v1/auth/oauth/google/callback`.
+  No provider credentials are required for local-only authentication.
+
+Before activation, apply `auth_alembic` migrations with the migration role under
+an operator-approved maintenance window, using the existing common lock file:
+`/var/lib/ocp-packages-maintenance/maintenance.lock`. Acquire it with the same
+nonblocking exclusive `flock` authority as deploy/retention. Never use a directory
+lock or a second lock file. Migration is an explicit operator action; deployment
+only verifies that it has already completed.
+
+The preflight runs under systemd with the root EnvironmentFile, service user,
+read-only filesystem and a read-only database transaction. It checks production
+security settings, matching public/WebAuthn origin, auth revision/table grants,
+absence of Registry write grants and limiter reachability. Activation additionally
+requires `/health/auth` before proxy reload. Existing deployment lock, asynchronous
+runner, immutable releases, artifact publication, Registry readiness, rollback and
+retention behavior are retained. Rollback does not remove account data or downgrade
+populated auth tables. No production operation was performed during implementation.
+
+Auth URL access logs omit one-time query parameters: Uvicorn redacts auth query
+strings; Nginx disables access logging only for auth-code and email-token routes.
+These routes also use `no-referrer`. Other Registry logging remains unchanged.
+
+CI adds an auth job with disposable PostgreSQL and virtual WebAuthn. Production
+workflow eligibility depends on that job as well as the existing gates. Tests
+never contact real OAuth providers or require production credentials.
+
+## Validation report (2026-09-06)
+
+All checks below used local disposable schemas/services or isolated provider mocks.
+
+| Check | Result |
+| --- | --- |
+| Project backend, Registry DB, auth, workflow and Ansible tests | 627 passed; 4 optional Host tests initially skipped |
+| Those 4 Host contract tests, rerun with pinned checkout `a0ec1edb1c904db18fea78aaffb531407e46f378` | 4 passed |
+| Original pinned Host Registry/installer suites | 59 passed |
+| Frontend Vitest suite | 49 passed |
+| Built Registry SSR contracts | 5 passed |
+| Browser auth/SSR/WebAuthn/email-token E2Es | 3 passed |
+| Nuxt TypeScript check and production build | Passed |
+| Ruff across repository | Passed |
+| Ansible deploy playbook syntax check | Passed |
+| `git diff --check` | Passed |
+
+The previously skipped Host tests were all completed separately; no test remains
+unverified because of that optional checkout. Test output includes an upstream
+Starlette/httpx deprecation notice and Nuxt timing/instrumentation warnings.
+Neither caused a failing check. Real OAuth providers, production SMTP/Redis and
+production credentials were deliberately not exercised. Their activation remains
+subject to the documented operator configuration and production preflight.
+
+Changes are scoped to `web/backend/app/auth`, independent auth migrations/tests,
+necessary `main.py` integration, frontend auth pages/components/SSR handling,
+Ansible auth activation/privacy checks, CI and documentation. Registry models,
+promotion, artifact building/publication, deployment lock/runner and retention
+implementations are unchanged.
