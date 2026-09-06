@@ -1,0 +1,8 @@
+version: 2
+secret:
+  ignored_matches:
+    # Historical credential-filtering fixture in da570153e833241529a4a10f726f8a39aa9c53a9.
+    # Replaced by an explicit test sentinel in f5fee380288b693a5edc9130f5dc07c8fbf7bf43.
+    # This exact false-positive fingerprint remains in history; no real credential.
+    - name: historical-ansible-password-test-fixture
+      match: 11205642e2076d02ec418520b40479b969916622b4d02a821444b2cd8d5a53ca
