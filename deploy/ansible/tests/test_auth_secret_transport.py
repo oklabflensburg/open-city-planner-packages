@@ -161,8 +161,14 @@ def transport_tasks(tmp_path):
 
 @pytest.mark.parametrize("enabled", [True, False])
 def test_real_ansible_secret_isolation_and_disabled_preservation(tmp_path, enabled):
+    database_url = "postgresql+asyncpg://auth:DATABASE_SECRET_TEST_SENTINEL@127.0.0.1/hub"
     result, ephemeral = build(
-        tmp_path, {**secrets(), "PACKAGES_REGISTRY_AUTH_ENABLED": str(enabled).lower()}
+        tmp_path,
+        {
+            **secrets(),
+            "PACKAGES_AUTH_DATABASE_URL": database_url,
+            "PACKAGES_REGISTRY_AUTH_ENABLED": str(enabled).lower(),
+        },
     )
     assert result.returncode == 0
     inputs = json.loads(ephemeral.read_text())
@@ -206,6 +212,12 @@ def test_real_ansible_secret_isolation_and_disabled_preservation(tmp_path, enabl
     runtime_text = (tmp_path / "auth.env").read_text()
     if enabled:
         assert "SECRET_TEST_SENTINEL" in runtime_text
+        assert f'AUTH_DATABASE_URL="{database_url}"' in runtime_text
+        assert inputs["packages_auth_database_url"] == database_url
+        assert (
+            json.loads((tmp_path / "auth-vars.json").read_text())["packages_auth_database_url"]
+            == database_url
+        )
         assert (tmp_path / "auth.env").stat().st_mode & 0o777 == 0o600
         assert "API_BASE_URL=https://packages.example.test\n" in runtime_text
         assert 'GITHUB_CLIENT_ID=""' in runtime_text

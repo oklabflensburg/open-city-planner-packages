@@ -35,14 +35,17 @@ def sent_mail(monkeypatch):
 
 @pytest.fixture
 def auth_client(auth_engine, monkeypatch, sent_mail):  # noqa: F811 - pytest fixture injection
-    monkeypatch.setenv("AUTH_DATABASE_URL", str(auth_engine.url))
+    url = auth_engine.url.set(drivername="postgresql+asyncpg")
+    monkeypatch.setenv("AUTH_DATABASE_URL", url.render_as_string(hide_password=False))
     get_settings.cache_clear()
     app = create_app(auth_enabled=True)
     # Preserve schema isolation on async connections used by the actual API.
     with auth_engine.connect() as connection:
         schema = connection.exec_driver_sql("SELECT current_schema()").scalar_one()
     engine = create_async_engine(
-        auth_engine.url, hide_parameters=True, connect_args={"options": f"-csearch_path={schema}"}
+        url,
+        hide_parameters=True,
+        connect_args={"server_settings": {"search_path": schema, "statement_timeout": "10000"}},
     )
     app.state.auth_engine = engine
     app.state.auth_sessions = async_sessionmaker(engine, expire_on_commit=False)

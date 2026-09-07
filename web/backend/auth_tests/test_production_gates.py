@@ -91,19 +91,36 @@ def test_auth_access_log_removes_query_but_registry_logging_unchanged():
 
 def test_read_only_preflight_requires_auth_grants_and_rejects_registry_writes(auth_engine):
     role = f"auth_gate_{uuid4().hex}"
+    password = secrets.token_hex(24)
     with auth_engine.begin() as connection:
         schema = connection.scalar(text("SELECT current_schema()"))
-        connection.exec_driver_sql(f'CREATE ROLE "{role}"')
+        connection.exec_driver_sql(f"CREATE ROLE \"{role}\" LOGIN PASSWORD '{password}'")
+        connection.exec_driver_sql(f'ALTER ROLE "{role}" SET search_path TO "{schema}"')
         connection.exec_driver_sql(f'GRANT USAGE ON SCHEMA "{schema}" TO "{role}"')
         for table in Base.metadata.tables:
             connection.exec_driver_sql(
                 f'GRANT SELECT, INSERT, UPDATE, DELETE ON "{table}" TO "{role}"'
             )
         connection.exec_driver_sql(f'GRANT SELECT ON auth_alembic_version TO "{role}"')
-    url = auth_engine.url.update_query_dict({"options": f"-csearch_path={schema} -crole={role}"})
+    url = auth_engine.url.set(drivername="postgresql+asyncpg", username=role, password=password)
     settings = SimpleNamespace(auth_database_url=url.render_as_string(hide_password=False))
     try:
         check_database(settings)
+        with auth_engine.begin() as connection:
+            connection.exec_driver_sql(
+                "UPDATE auth_alembic_version SET version_num='wrong_revision'"
+            )
+        with pytest.raises(RuntimeError, match="Auth migration required"):
+            check_database(settings)
+        with auth_engine.begin() as connection:
+            connection.exec_driver_sql(
+                "UPDATE auth_alembic_version SET version_num='0063_auth_persistence'"
+            )
+            connection.exec_driver_sql(f'REVOKE INSERT ON users FROM "{role}"')
+        with pytest.raises(RuntimeError, match="lacks required table grants"):
+            check_database(settings)
+        with auth_engine.begin() as connection:
+            connection.exec_driver_sql(f'GRANT INSERT ON users TO "{role}"')
         with auth_engine.begin() as connection:
             connection.exec_driver_sql(f'GRANT INSERT ON modules TO "{role}"')
         with pytest.raises(RuntimeError, match="must not write Registry"):
