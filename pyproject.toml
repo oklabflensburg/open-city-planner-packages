@@ -31,6 +31,7 @@ Repository = "https://github.com/oklabflensburg/open-city-planner-packages"
 
 [project.optional-dependencies]
 auth = [
+    "asyncpg==0.31.0",
     "alembic==1.19.2",
     "psycopg[binary]==3.3.5",
     "sqlalchemy==2.0.52",

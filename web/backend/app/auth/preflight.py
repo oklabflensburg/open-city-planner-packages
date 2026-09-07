@@ -7,15 +7,15 @@ import os
 from sqlalchemy import create_engine, text
 
 from web.backend.app.auth.config import get_settings
+from web.backend.app.auth.db_config import auth_sync_database_url
 from web.backend.app.auth.models.base import Base
 from web.backend.app.auth.redis import get_redis
-from web.backend.app.db.config import database_url
 from web.backend.app.db.models import Base as RegistryBase
 
 
 def check_database(settings):
     engine = create_engine(
-        database_url(settings.auth_database_url),
+        auth_sync_database_url(settings.auth_database_url),
         hide_parameters=True,
         connect_args={"connect_timeout": 5},
     )
