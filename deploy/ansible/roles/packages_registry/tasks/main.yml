@@ -299,8 +299,13 @@
     argv:
       - corepack
       - pnpm
-      - test
+      - exec
+      - vitest
+      - run
+      - --maxWorkers=1
     chdir: "{{ packages_registry_release_path }}/web/frontend"
+  environment:
+    CI: "1"
   become_user: "{{ packages_registry_service_user }}"
   changed_when: false
   when: packages_registry_run_tests | bool
