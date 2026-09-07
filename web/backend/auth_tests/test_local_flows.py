@@ -152,3 +152,44 @@ def test_credentialed_auth_cors_does_not_change_registry_policy(auth_client):
     assert response.headers["access-control-allow-credentials"] == "true"
     headers["origin"] = "https://evil.test"
     assert auth_client.options("/api/v1/auth/login", headers=headers).status_code == 400
+
+
+def test_profile_metadata_exposes_password_status_without_hash(auth_client, auth_engine):
+    signup(auth_client)
+    response = auth_client.get("/api/v1/users/me")
+    assert response.json()["has_local_password"] is True
+    assert "password_hash" not in response.json()
+    assert "created_at" in response.json()
+    with Session(auth_engine) as session:
+        session.execute(update(User).values(password_hash=None))
+        session.commit()
+    response = auth_client.get("/api/v1/users/me")
+    assert response.json()["has_local_password"] is False
+    assert "password_hash" not in response.json()
+
+
+def test_linked_account_metadata_contains_avatar_but_no_provider_credentials(
+    auth_client, auth_engine
+):
+    from web.backend.app.auth.models import UserOAuthAccount
+
+    signup(auth_client)
+    with Session(auth_engine) as session:
+        user = session.scalar(select(User))
+        session.add(
+            UserOAuthAccount(
+                user_id=user.id,
+                provider="github",
+                provider_subject="PRIVATE_PROVIDER_SUBJECT",
+                provider_username="mara.codes",
+                provider_email="mara@example.org",
+                provider_avatar_url="https://avatars.example.org/mara.png",
+                provider_profile_url="https://github.com/example",
+            )
+        )
+        session.commit()
+    response = auth_client.get("/api/v1/users/me/oauth-accounts")
+    assert response.status_code == 200
+    assert response.json()[0]["provider_avatar_url"] == "https://avatars.example.org/mara.png"
+    assert "PRIVATE_PROVIDER_SUBJECT" not in response.text
+    assert "password_hash" not in response.text

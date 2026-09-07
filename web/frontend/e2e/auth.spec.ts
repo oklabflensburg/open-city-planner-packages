@@ -15,7 +15,7 @@ test("local account, SSR refresh, logout/login and real WebAuthn", async ({
   await page.getByRole("button", { name: "Registrieren", exact: true }).click();
   await expect(page).toHaveURL(/\/profil$/);
   await expect(
-    page.getByRole("heading", { name: "Profil und Sicherheit" }),
+    page.getByRole("heading", { name: "Profil", exact: true, level: 1 }),
   ).toBeVisible();
   const me = await context.request.get("/api/v1/auth/me");
   expect(me.ok()).toBeTruthy();
@@ -30,6 +30,7 @@ test("local account, SSR refresh, logout/login and real WebAuthn", async ({
   expect(htmlResponse.headers()["cache-control"]).toContain("no-store");
   const html = await htmlResponse.text();
   expect(html).toContain(email);
+  expect(html).toMatch(/name="robots" content="noindex, nofollow"/);
   for (const value of [access.value, refresh.value, csrf.value])
     expect(html).not.toContain(value);
   const home = await context.request.get("/");
@@ -39,7 +40,7 @@ test("local account, SSR refresh, logout/login and real WebAuthn", async ({
   await context.clearCookies({ name: "ocp_hub_access_token" });
   await page.reload();
   await expect(
-    page.getByRole("heading", { name: "Profil und Sicherheit" }),
+    page.getByRole("heading", { name: "Profil", exact: true, level: 1 }),
   ).toBeVisible();
   cookies = await context.cookies();
   expect(
@@ -69,6 +70,9 @@ test("local account, SSR refresh, logout/login and real WebAuthn", async ({
       automaticPresenceSimulation: true,
     },
   });
+  await page
+    .getByRole("button", { name: "Passkey hinzufügen", exact: true })
+    .click();
   await page.getByLabel("Name des neuen Passkeys").fill("E2E Passkey");
   await page
     .getByRole("button", { name: "Passkey hinzufügen", exact: true })

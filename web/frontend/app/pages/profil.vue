@@ -7,7 +7,11 @@ useHead({
 </script>
 <template>
   <div class="auth-profile">
-    <h1 class="page-title">Profil und Sicherheit</h1>
+    <header class="profile-heading">
+      <p class="eyebrow">Konto</p>
+      <h1 class="page-title">Profil</h1>
+      <p>Persönliche Angaben, Profilbild und verbundene Konten verwalten.</p>
+    </header>
     <AuthSecurity />
   </div>
 </template>
