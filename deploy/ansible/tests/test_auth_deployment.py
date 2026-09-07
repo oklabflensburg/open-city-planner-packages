@@ -25,6 +25,7 @@ def test_independent_auth_activation_and_no_frontend_secrets(enabled):
     frontend = render("packages-registry-frontend.service.j2", enabled)
     assert ("EnvironmentFile=/etc/open-city-planner-packages/auth.env" in backend) is active
     assert f"Environment=NUXT_PUBLIC_AUTH_ENABLED={str(active).lower()}" in frontend
+    assert "ProtectHome=true" in backend.splitlines()
     assert "EnvironmentFile=" not in frontend
     assert "SECRET" not in frontend and "PASSWORD" not in frontend
     assert "UnsetEnvironment=PACKAGES_REGISTRY_V2_API_ENABLED" in backend

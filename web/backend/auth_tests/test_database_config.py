@@ -7,7 +7,8 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, text
+from asyncpg import connect_utils
+from sqlalchemy import create_engine, event, text
 
 from web.backend.app.auth.config import get_settings
 from web.backend.app.auth.database import configure_database
@@ -84,12 +85,34 @@ async def test_actual_runtime_engine_sessions_and_statement_timeout(
     app = SimpleNamespace(state=SimpleNamespace())
     configure_database(app)
     engine = app.state.auth_engine
+    connect_parameters = []
+
+    def deny_postgresql_home_files(filename):
+        raise PermissionError(f"ProtectHome denies ~/.postgresql/{filename}")
+
+    # Keep the actual asyncpg connection path; only emulate the inaccessible
+    # default SSL files of the hardened systemd service.
+    monkeypatch.setattr(connect_utils, "_dot_postgresql_path", deny_postgresql_home_files)
+
+    @event.listens_for(engine.sync_engine, "do_connect")
+    def capture_connection_parameters(dialect, record, args, kwargs):
+        connect_parameters.append(kwargs.copy())
+
     try:
         assert engine.dialect.driver == "asyncpg"
         assert engine.pool.size() == 5
+        assert engine.pool.timeout() == 10
+        assert engine.pool._max_overflow == 5
+        assert engine.pool._pre_ping is True
+        assert engine.sync_engine.hide_parameters is True
         async with engine.connect() as connection:
             assert await connection.scalar(text("SELECT 1")) == 1
             assert await connection.scalar(text("SHOW statement_timeout")) == "10s"
+        assert connect_parameters
+        for parameters in connect_parameters:
+            assert parameters["ssl"] is False
+            assert parameters["timeout"] == 5
+            assert parameters["server_settings"] == {"statement_timeout": "10000"}
         async with app.state.auth_sessions() as session:
             assert await session.scalar(text("SELECT 1")) == 1
             assert await session.scalar(text("SHOW statement_timeout")) == "10s"

@@ -19,7 +19,12 @@ def configure_database(application):
         pool_size=5,
         max_overflow=5,
         pool_timeout=10,
-        connect_args={"timeout": 5, "server_settings": {"statement_timeout": "10000"}},
+        # PostgreSQL is local; avoid default SSL key discovery under ProtectHome.
+        connect_args={
+            "timeout": 5,
+            "ssl": False,
+            "server_settings": {"statement_timeout": "10000"},
+        },
     )
     application.state.auth_engine = engine
     application.state.auth_sessions = async_sessionmaker(engine, expire_on_commit=False)
