@@ -32,6 +32,7 @@ class UserOAuthAccountRead(BaseModel):
     provider_username: str | None
     provider_email: EmailStr | None
     provider_profile_url: str | None
+    provider_avatar_url: str | None
     created_at: datetime
     last_login_at: datetime | None
     model_config = ConfigDict(from_attributes=True)

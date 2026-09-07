@@ -12,6 +12,7 @@ class UserRead(BaseModel):
     last_name: str
     display_name: str | None
     avatar_url: str | None
+    has_local_password: bool
     is_active: bool
     is_verified: bool
     email_pending: bool = False
