@@ -1,0 +1,46 @@
+---
+- name: Validate explicit auth runtime inputs before touching the environment file
+  ansible.builtin.set_fact:
+    packages_auth_values: "{{ vars | packages_auth_extra_vars(true) }}"
+  no_log: true
+
+# Check every ancestor before file/template modules can follow a symlink.
+- name: Reject symlinks and unsafe auth environment parents
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import os, pathlib, stat, sys
+        target = pathlib.Path(sys.argv[1])
+        for parent in reversed(target.parents):
+            if os.path.lexists(parent):
+                info = parent.lstat()
+                if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+                    sys.exit('Auth environment parents must be root-owned private directories')
+        if os.path.lexists(target) and not stat.S_ISREG(target.lstat().st_mode):
+            sys.exit('Auth environment must be a regular file, never a symlink')
+      - "{{ packages_registry_auth_environment_file }}"
+  changed_when: false
+  no_log: true
+
+- name: Ensure root-owned auth environment directory
+  ansible.builtin.file:
+    path: "{{ packages_registry_auth_environment_file | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  no_log: true
+
+- name: Render private auth runtime environment atomically
+  ansible.builtin.template:
+    src: packages-registry-auth.env.j2
+    dest: "{{ packages_registry_auth_environment_file }}"
+    owner: root
+    group: root
+    mode: '0600'
+    follow: false
+    unsafe_writes: false
+  no_log: true
+  diff: false

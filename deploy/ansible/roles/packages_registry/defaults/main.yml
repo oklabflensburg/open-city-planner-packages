@@ -38,6 +38,7 @@ packages_registry_v1_db_compat_routing_enabled: false
 # Existing, root-owned EnvironmentFile containing the read-only DATABASE_URL.
 packages_registry_database_environment_file: /etc/open-city-planner-packages/registry-db.env
 
-# Auth activation is independent of Registry routing; only this path is forwarded.
+# Auth activation is independent of Registry routing. Public settings carry only
+# the flag and path; secrets use packages_auth_* and a separate private transport.
 packages_registry_auth_enabled: false
 packages_registry_auth_environment_file: /etc/open-city-planner-packages/auth.env

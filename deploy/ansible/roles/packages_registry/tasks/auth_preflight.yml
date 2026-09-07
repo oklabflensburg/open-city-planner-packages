@@ -15,8 +15,9 @@
       - packages_registry_auth_environment_stat.stat.isreg
       - not packages_registry_auth_environment_stat.stat.islnk
       - packages_registry_auth_environment_stat.stat.uid == 0
-      - packages_registry_auth_environment_stat.stat.mode in ['0600', '0400']
-    fail_msg: Auth requires an existing root-owned private EnvironmentFile.
+      - packages_registry_auth_environment_stat.stat.gid == 0
+      - packages_registry_auth_environment_stat.stat.mode == '0600'
+    fail_msg: Auth requires a managed root-owned private EnvironmentFile.
   no_log: true
 
 - name: Verify auth production configuration and existing schema without writes
