@@ -472,7 +472,8 @@ def test_ansible_crash_keeps_surviving_task_locked_until_it_finishes(tmp_path):
         process.communicate(timeout=10)
 
 
-def test_outer_playbook_stages_runs_async_and_removes_completed_invocation(tmp_path):
+@pytest.mark.parametrize("auth_enabled", [False, True])
+def test_outer_playbook_stages_runs_async_and_removes_completed_invocation(tmp_path, auth_enabled):
     """Run the orchestration locally with harmless work and preinstalled Ansible."""
     ansible = shutil.which("ansible-playbook")
     assert ansible
@@ -522,6 +523,24 @@ def test_outer_playbook_stages_runs_async_and_removes_completed_invocation(tmp_p
     outer = yaml.safe_load((ansible_root / "playbooks/deploy.yml").read_text())[0]
     outer.update(hosts="all", connection="local", become=False, gather_facts=False)
     outer["vars"]["packages_registry_v2_api_enabled"] = True
+    outer["vars"]["packages_registry_auth_enabled"] = auth_enabled
+    if auth_enabled:
+        for field in (
+            "database_url", "secret", "oauth_state_secret", "mfa_recovery_pepper",
+            "mfa_encryption_key", "redis_url", "smtp_host", "smtp_from_email",
+        ):
+            outer["vars"][f"packages_auth_{field}"] = f"{field}_SECRET_TEST_SENTINEL"
+    inner_play = yaml.safe_load(inner.read_text())[0]
+    inner_play["tasks"].append({
+        "ansible.builtin.assert": {"that": [
+            "packages_auth_secret == 'secret_SECRET_TEST_SENTINEL'" if auth_enabled
+            else "packages_auth_secret is undefined",
+            "'SENTINEL' not in lookup('file', 'settings.json')",
+            "'packages_auth_' not in lookup('file', 'settings.json')",
+        ]},
+        "no_log": True,
+    })
+    inner.write_text(yaml.safe_dump([inner_play]))
     tasks = outer["tasks"]
     parent = tasks[0]["ansible.builtin.file"]
     parent.update(path=str(maintenance_root))
@@ -534,16 +553,18 @@ def test_outer_playbook_stages_runs_async_and_removes_completed_invocation(tmp_p
         {"src": str(inner), "dest": "deploy_locked.yml"},
         {"src": str(ansible_root / "ansible.cfg"), "dest": "ansible.cfg"},
     ]
+    secret_stage = block[2]["ansible.builtin.copy"]
+    secret_stage.update(owner=str(os.getuid()), group=str(os.getgid()))
     # Dependency download is deliberately excluded; exercise real local Ansible,
     # the unchanged async command, settings handoff and completion cleanup tasks.
-    block[2] = {
+    block[3] = {
         "ansible.builtin.file": {
             "src": str(Path(ansible).parent.parent),
             "dest": "{{ maintenance_stage.path }}/venv",
             "state": "link",
         }
     }
-    block[3] = {"ansible.builtin.debug": {"msg": "Using locked test environment"}}
+    block[4] = {"ansible.builtin.debug": {"msg": "Using locked test environment"}}
     play = tmp_path / "outer.yml"
     play.write_text(yaml.safe_dump([outer]))
     result = subprocess.run(
@@ -552,8 +573,11 @@ def test_outer_playbook_stages_runs_async_and_removes_completed_invocation(tmp_p
         text=True,
         check=False,
         timeout=60,
+        env=dict(os.environ, ANSIBLE_FILTER_PLUGINS=str(
+            ansible_root / "roles/packages_registry/filter_plugins")),
     )
     assert result.returncode == 0, result.stdout + result.stderr
+    assert "SENTINEL" not in result.stdout + result.stderr
     assert (tmp_path / "executed").read_text() == "yes"
     assert not list(maintenance_root.glob("deploy-*"))
     assert (maintenance_root / "lock").is_dir()

@@ -340,6 +340,8 @@ def test_deployment_avoids_unrequested_stateful_infrastructure() -> None:
         read(path)
         for path in ANSIBLE.rglob("*")
         if path.is_file() and path.suffix in {".yml", ".j2", ".ini"}
+        # Runtime references to existing Redis are required; no provisioning.
+        and path.name != "packages-registry-auth.env.j2"
     ).lower()
     forbidden = (
         "postgresql",

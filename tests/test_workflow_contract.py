@@ -262,3 +262,38 @@ def test_auth_job_uses_disposable_database_and_real_browser_gate():
     assert "python -m scripts.run_auth_e2e" in commands
     assert "playwright install --with-deps chromium" in commands
     assert "secrets." not in str(auth)
+
+
+def test_production_auth_uses_separate_private_file_and_always_cleanup():
+    workflow = yaml.safe_load((ROOT / '.github/workflows/registry.yml').read_text())
+    job = workflow['jobs']['deploy-production']
+    assert job['environment']['name'] == 'production'
+    steps = job['steps']
+    builder = next(s for s in steps if s['name'] == 'Build ephemeral Production auth inputs')
+    assert builder['env']['PACKAGES_REGISTRY_AUTH_ENABLED'] == (
+        '${{ vars.PACKAGES_REGISTRY_AUTH_ENABLED }}')
+    fields = (
+        'DATABASE_URL', 'SECRET', 'OAUTH_STATE_SECRET', 'MFA_RECOVERY_PEPPER',
+        'MFA_ENCRYPTION_KEY', 'REDIS_URL', 'SMTP_HOST', 'SMTP_USERNAME',
+        'SMTP_PASSWORD', 'SMTP_FROM_EMAIL', 'GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET',
+        'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET',
+    )
+    for field in fields:
+        key = 'PACKAGES_AUTH_' + field
+        assert builder['env'][key] == '${{ secrets.' + key + ' }}'
+        for step in steps:
+            # Values exist only in the builder's environment, never shell text,
+            # GITHUB_OUTPUT, the job environment, or another step's environment.
+            assert key not in step.get('run', '')
+            if step is not builder:
+                assert key not in step.get('env', {})
+        assert key not in job.get('env', {})
+    assert 'build-github-auth-vars.py' in builder['run']
+    assert '--output "${RUNNER_TEMP}/packages-auth-vars.json"' in builder['run']
+    assert 'chmod 0600' in builder['run'] and 'umask 077' in builder['run']
+    deploy = next(s for s in steps if s['name'].startswith('Deploy exact reviewed commit'))
+    assert '--extra-vars "@${RUNNER_TEMP}/packages-auth-vars.json"' in deploy['run']
+    cleanup = steps[-1]
+    assert cleanup['if'] == 'always()'
+    assert 'rm -f "${RUNNER_TEMP}/packages-auth-vars.json"' in cleanup['run']
+    assert steps.index(builder) < steps.index(deploy)
