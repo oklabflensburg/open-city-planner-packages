@@ -29,15 +29,15 @@ def main():
         raise SystemExit(
             "Set PACKAGES_REGISTRY_TEST_DATABASE_URL to a disposable PostgreSQL database"
         )
-    schema = f"auth_e2e_{uuid4().hex}"
-    admin = create_engine(raw, hide_parameters=True)
+    database = f"auth_e2e_{uuid4().hex}"
+    admin = create_engine(raw, hide_parameters=True, isolation_level="AUTOCOMMIT")
     backend_port, frontend_port = free_port(), free_port()
     origin = f"http://localhost:{frontend_port}"
     processes = []
     with admin.begin() as connection:
-        connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
+        connection.exec_driver_sql(f'CREATE DATABASE "{database}"')
     try:
-        engine = create_engine(raw, connect_args={"options": f"-csearch_path={schema}"})
+        engine = create_engine(admin.url.set(database=database), hide_parameters=True)
         with engine.begin() as connection:
             config = Config(str(ROOT / "web/backend/auth_alembic.ini"))
             config.attributes["connection"] = connection
@@ -46,14 +46,15 @@ def main():
             registry_config.attributes["connection"] = connection
             command.upgrade(registry_config, "head")
         import_registry(engine, ROOT / "registry")
-        url = engine.url.update_query_dict({"options": f"-csearch_path={schema}"}).render_as_string(
+        url = engine.url.render_as_string(hide_password=False)
+        auth_url = engine.url.set(drivername="postgresql+asyncpg").render_as_string(
             hide_password=False
         )
         engine.dispose()
         env = dict(
             os.environ,
             AUTH_ENABLED="true",
-            AUTH_DATABASE_URL=url,
+            AUTH_DATABASE_URL=auth_url,
             PACKAGES_REGISTRY_DATABASE_URL=url,
             PACKAGES_REGISTRY_V2_API_ENABLED="true",
             APP_ENVIRONMENT="development",
@@ -117,7 +118,7 @@ def main():
                 process.kill()
                 process.wait()
         with admin.begin() as connection:
-            connection.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
+            connection.exec_driver_sql(f'DROP DATABASE "{database}" WITH (FORCE)')
         admin.dispose()
 
 

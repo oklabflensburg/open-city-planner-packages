@@ -15,10 +15,45 @@ A separate database role must have access only to the auth tables.
 Run migrations explicitly with a migration role against the intended database:
 
 ```sh
-AUTH_DATABASE_URL=... uv run --extra registry-db alembic -c web/backend/auth_alembic.ini upgrade head
+AUTH_DATABASE_URL='postgresql+asyncpg://auth_migration@127.0.0.1:5432/packages_dev' \
+  uv run --extra auth alembic -c web/backend/auth_alembic.ini upgrade head
 ```
 
 `AUTH_DATABASE_URL` is required and never falls back to the Registry credential.
+
+Auth has one URL contract: `postgresql+asyncpg://` with a database name. The GitHub
+secret `PACKAGES_AUTH_DATABASE_URL`, the generated `AUTH_DATABASE_URL` in `auth.env`
+and local configuration all use that same form. Do not set the Auth runtime secret
+to `postgresql+psycopg://` and do not create a second sync-URL secret.
+
+| Consumer | Driver and configuration |
+| --- | --- |
+| Auth API runtime | `asyncpg==0.31.0`, SQLAlchemy `create_async_engine(auth_database_url(...))` |
+| Auth Alembic and Production preflight | `psycopg[binary]==3.3.5`, `create_engine(auth_sync_database_url(...))` |
+| Registry v1/v2 database | Unchanged `postgresql+psycopg://` through `PACKAGES_REGISTRY_DATABASE_URL` |
+
+`web/backend/app/auth/db_config.py` validates the asyncpg URL independently of the
+Registry parser. The sync helper uses SQLAlchemy's structured
+`url.set(drivername="postgresql+psycopg")`; it preserves username, password, host,
+port, database and query parameters without string replacement or manual credential
+parsing. Invalid URLs produce fixed errors without credential contents.
+The transport from GitHub through Ansible does not rewrite the URL.
+
+Runtime connections use `timeout=5` and
+`server_settings={"statement_timeout": "10000"}` with the existing pre-ping,
+5-connection pool, 5 overflow connections and 10-second pool wait timeout. These are
+[asyncpg connection parameters](https://magicstack.github.io/asyncpg/current/api/index.html#asyncpg.connection.connect)
+passed through [SQLAlchemy's asyncpg dialect](https://docs.sqlalchemy.org/en/20/dialects/postgresql.html#module-sqlalchemy.dialects.postgresql.asyncpg).
+The synchronous preflight retains psycopg's `connect_timeout` and all existing
+read-only schema/grant, Registry-write prohibition, Redis and origin checks.
+
+The conversion preserves query parameters; it does not translate driver-specific
+options. For example, asyncpg's `ssl` and libpq's `sslmode` are different connection
+arguments. The documented local Production connection needs neither. Do not add
+psycopg-only `options` to the runtime URL; set database-role defaults such as
+`search_path` in PostgreSQL when needed by both drivers. Migration runs separately
+with the migration/owner role, using the same URL format rather than runtime grants.
+
 Schema creation does not run during application startup. An empty auth schema can
 be downgraded to `base`; a populated schema refuses destructive downgrade. For
 rollback with account data, keep the schema and restore a compatible service.
@@ -151,11 +186,14 @@ failures explicitly return cookie deletions (FastAPI exception responses otherwi
 discard modifications to the injected Response). Concurrent signup uniqueness
 conflicts return the same 409 contract as sequential duplicates.
 
-The browser test uses an isolated PostgreSQL schema, real backend and built SSR
+The browser test uses an isolated PostgreSQL database, real backend and built SSR
 server. It exercises signup, `/me`, SSR refresh, logout/login, protected profile,
 actual signed WebAuthn registration/passwordless login/step-up with Chromium's
 virtual authenticator, and token absence from HTML. It imports the checked-in
-Registry into that disposable schema to verify personalized Registry-page caching.
+Registry into that disposable database to verify personalized Registry-page caching.
+The disposable test role needs CREATEDB permission; CI uses its isolated PostgreSQL
+superuser. The launcher keeps Registry on psycopg and Auth on asyncpg without
+passing psycopg-only search-path options to asyncpg.
 
 ```sh
 uv sync --frozen --extra auth
@@ -224,7 +262,7 @@ prerequisites below are ready. The following **environment secrets** are support
 
 | GitHub secret | Runtime environment key | Requirement |
 | --- | --- | --- |
-| `PACKAGES_AUTH_DATABASE_URL` | `AUTH_DATABASE_URL` | Required when enabled |
+| `PACKAGES_AUTH_DATABASE_URL` | `AUTH_DATABASE_URL` | Required when enabled; `postgresql+asyncpg://` |
 | `PACKAGES_AUTH_SECRET` | `AUTH_SECRET` | Required when enabled |
 | `PACKAGES_AUTH_OAUTH_STATE_SECRET` | `OAUTH_STATE_SECRET` | Required when enabled |
 | `PACKAGES_AUTH_MFA_RECOVERY_PEPPER` | `MFA_RECOVERY_PEPPER` | Required when enabled |
@@ -366,6 +404,43 @@ These routes also use `no-referrer`. Other Registry logging remains unchanged.
 CI adds an auth job with disposable PostgreSQL and virtual WebAuthn. Production
 workflow eligibility depends on that job as well as the existing gates. Tests
 never contact real OAuth providers or require production credentials.
+
+## Asyncpg driver correction validation (2026-09-07)
+
+The previous Auth runtime, Alembic and preflight reused the Registry URL validator,
+which only accepts psycopg. Consequently the intended asyncpg Production URL failed
+before connecting. Auth also lacked the asyncpg dependency and used psycopg-specific
+connection arguments. The dedicated helper, asyncpg runtime and internally derived
+psycopg maintenance URL resolve that driver mismatch without changing the Production
+secret, Registry parser or Ansible transport.
+
+Validation used a disposable PostgreSQL 18 container and the pinned real Host
+checkout for Registry contract tests:
+
+| Command | Result |
+| --- | --- |
+| `uv sync --frozen --extra auth` after `uv lock` | Passed |
+| `uv run pytest web/backend/auth_tests` | 113 passed |
+| `uv run pytest web/backend/db_tests` | 185 passed, including Host tests |
+| `uv run pytest web/backend/tests` | 16 passed |
+| `uv run pytest tests` | 233 passed |
+| `uv run pytest deploy/ansible/tests` | 126 passed |
+| Final preflight regression run with dedicated login-role URL | 19 passed |
+| `uv run python -m scripts.run_auth_e2e` using the existing built frontend | 3 browser tests passed |
+| `uv run ruff check .`, `git diff --check` | Passed |
+
+The new tests cover credential-safe parse errors, driver rejection, lossless sync
+URL derivation, unchanged Ansible transport, real asyncpg connections/sessions and
+`statement_timeout=10s`. Alembic runs in a subprocess from an asyncpg environment URL
+against a newly created empty database and reaches `0063_auth_persistence`.
+The actual synchronous preflight DB checks accept an asyncpg URL for a dedicated
+login role, reject a wrong revision and missing Auth grants, and still reject
+Registry write grants. The existing Starlette/httpx deprecation warning remains.
+
+No Frontend sources, GitHub secrets, Production database or Production services were
+changed. No Production deploy was executed. These tests resolve the reported URL
+validation failure; live connectivity, grants, schema and Redis remain subject to
+the unchanged on-server preflight.
 
 ## Secret deployment validation (#70, 2026-09-07)
 

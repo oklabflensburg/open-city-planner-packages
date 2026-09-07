@@ -6,8 +6,8 @@ from alembic import context
 from sqlalchemy import create_engine
 
 from web.backend.app.auth import models  # noqa: F401
+from web.backend.app.auth.db_config import auth_sync_database_url
 from web.backend.app.auth.models.base import Base
-from web.backend.app.db.config import database_url
 
 
 def include_object(obj, name, type_, reflected, compare_to):
@@ -34,7 +34,7 @@ def run_migrations():
     raw = os.environ.get("AUTH_DATABASE_URL")
     if not raw:
         raise ValueError("AUTH_DATABASE_URL is required for auth migrations")
-    url = database_url(raw)
+    url = auth_sync_database_url(raw)
     if context.is_offline_mode():
         context.configure(
             url=url,
