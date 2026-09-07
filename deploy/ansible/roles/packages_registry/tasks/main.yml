@@ -264,6 +264,10 @@
   become_user: "{{ packages_registry_service_user }}"
   changed_when: false
 
+- name: Manage opt-in auth runtime environment
+  ansible.builtin.include_tasks: auth_environment.yml
+  when: packages_registry_auth_enabled | bool
+
 - name: Check opt-in auth production prerequisites
   ansible.builtin.include_tasks: auth_preflight.yml
   when: packages_registry_auth_enabled | bool

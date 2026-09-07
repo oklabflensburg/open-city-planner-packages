@@ -48,6 +48,20 @@
             mode: '0600'
           no_log: true
 
+        # Separate allowlisted transport through the private async invocation.
+        # packages_auth_* must never enter packages_registry_* settings.json.
+        - name: Stage private auth inputs separately from registry settings
+          ansible.builtin.copy:
+            content: >-
+              {{ vars | packages_auth_extra_vars(packages_registry_auth_enabled | default(false) | bool)
+                 | to_nice_json }}
+            dest: "{{ maintenance_stage.path }}/auth-vars.json"
+            owner: root
+            group: root
+            mode: '0600'
+          no_log: true
+          diff: false
+
         - name: Prepare pinned local Ansible for this invocation
           ansible.builtin.command:
             argv:
@@ -85,6 +99,8 @@
               - deploy_locked.yml
               - -e
               - '@settings.json'
+              - --extra-vars
+              - '@auth-vars.json'
             chdir: "{{ maintenance_stage.path }}"
           async: 2700
           poll: 5

@@ -328,6 +328,30 @@ jobs:
       - name: Install locked deployment dependencies
         run: uv sync --frozen
 
+      - name: Build ephemeral Production auth inputs
+        shell: bash
+        env:
+          PACKAGES_REGISTRY_AUTH_ENABLED: ${{ vars.PACKAGES_REGISTRY_AUTH_ENABLED }}
+          PACKAGES_AUTH_DATABASE_URL: ${{ secrets.PACKAGES_AUTH_DATABASE_URL }}
+          PACKAGES_AUTH_SECRET: ${{ secrets.PACKAGES_AUTH_SECRET }}
+          PACKAGES_AUTH_OAUTH_STATE_SECRET: ${{ secrets.PACKAGES_AUTH_OAUTH_STATE_SECRET }}
+          PACKAGES_AUTH_MFA_RECOVERY_PEPPER: ${{ secrets.PACKAGES_AUTH_MFA_RECOVERY_PEPPER }}
+          PACKAGES_AUTH_MFA_ENCRYPTION_KEY: ${{ secrets.PACKAGES_AUTH_MFA_ENCRYPTION_KEY }}
+          PACKAGES_AUTH_REDIS_URL: ${{ secrets.PACKAGES_AUTH_REDIS_URL }}
+          PACKAGES_AUTH_SMTP_HOST: ${{ secrets.PACKAGES_AUTH_SMTP_HOST }}
+          PACKAGES_AUTH_SMTP_USERNAME: ${{ secrets.PACKAGES_AUTH_SMTP_USERNAME }}
+          PACKAGES_AUTH_SMTP_PASSWORD: ${{ secrets.PACKAGES_AUTH_SMTP_PASSWORD }}
+          PACKAGES_AUTH_SMTP_FROM_EMAIL: ${{ secrets.PACKAGES_AUTH_SMTP_FROM_EMAIL }}
+          PACKAGES_AUTH_GITHUB_CLIENT_ID: ${{ secrets.PACKAGES_AUTH_GITHUB_CLIENT_ID }}
+          PACKAGES_AUTH_GITHUB_CLIENT_SECRET: ${{ secrets.PACKAGES_AUTH_GITHUB_CLIENT_SECRET }}
+          PACKAGES_AUTH_GOOGLE_CLIENT_ID: ${{ secrets.PACKAGES_AUTH_GOOGLE_CLIENT_ID }}
+          PACKAGES_AUTH_GOOGLE_CLIENT_SECRET: ${{ secrets.PACKAGES_AUTH_GOOGLE_CLIENT_SECRET }}
+        run: |
+          umask 077
+          python deploy/ansible/scripts/build-github-auth-vars.py \
+            --output "${RUNNER_TEMP}/packages-auth-vars.json"
+          chmod 0600 "${RUNNER_TEMP}/packages-auth-vars.json"
+
       - name: Configure pinned Production SSH trust
         shell: bash
         env:
@@ -374,6 +398,7 @@ jobs:
           -i inventory/production.ini
           playbooks/deploy.yml
           -e "packages_registry_deploy_ref=${GITHUB_SHA}"
+          --extra-vars "@${RUNNER_TEMP}/packages-auth-vars.json"
 
       - name: Verify public Production Registry
         run: |
@@ -393,3 +418,12 @@ jobs:
               raise SystemExit("Production Registry did not return a Registry v1 index")
           print("Production Registry smoke check passed.")
           PY
+
+      - name: Remove ephemeral Production credentials
+        if: always()
+        shell: bash
+        run: |
+          rm -f "${RUNNER_TEMP}/packages-auth-vars.json" \
+            "${RUNNER_TEMP}"/packages-auth-vars.json.* \
+            "${HOME}/.ssh/id_ed25519" "${HOME}/.ssh/known_hosts" \
+            deploy/ansible/inventory/production.ini
