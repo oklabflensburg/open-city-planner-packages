@@ -163,20 +163,157 @@ uv sync --frozen --extra auth
 PACKAGES_REGISTRY_TEST_DATABASE_URL=... uv run --frozen --extra auth python -m scripts.run_auth_e2e
 ```
 
-## Production activation and safety gates (#68)
+## Production activation and safety gates (#68, #70)
 
 Auth stays off by default (`packages_registry_auth_enabled: false`). Deployment
 installs the frozen auth dependency extra, but does not create a database, run
 migrations, provision a limiter/mail service, create secrets or activate providers.
 Production inventory is unchanged.
 
-Provision `/etc/open-city-planner-packages/auth.env` out of band, owned by root,
-mode `0600` or `0400`, as a regular file, not a symlink. The backend's systemd
-manager reads this file before dropping privileges. Frontend receives only
-`NUXT_PUBLIC_AUTH_ENABLED` and its existing public/internal API origins. No
-credential contents pass through Ansible variables, facts or `settings.json`.
-Only the activation boolean and EnvironmentFile path use Registry deployment vars.
-Secret-related preflight tasks are `no_log`.
+GitHub Environment `production` is the source of deployment inputs. The workflow
+maps `vars.PACKAGES_REGISTRY_AUTH_ENABLED` to a JSON boolean
+`packages_registry_auth_enabled`. Missing/empty or `false` stays disabled; only
+`true` enables auth (case-insensitive). Other values fail without activating auth.
+When disabled, secrets are neither required nor forwarded, the existing `auth.env`
+is preserved, preflight is skipped, the backend omits its auth EnvironmentFile and
+unsets `AUTH_ENABLED`, and the frontend receives `NUXT_PUBLIC_AUTH_ENABLED=false`.
+
+The deployment pattern follows the reference
+[Production workflow](https://github.com/oklabflensburg/open-city-planner/blob/main/.github/workflows/deploy.yml),
+[builder](https://github.com/oklabflensburg/open-city-planner/blob/main/deploy/ansible/scripts/build-github-vars.py)
+and [Vault example](https://github.com/oklabflensburg/open-city-planner/blob/main/deploy/ansible/vault.example.yml),
+adapted to the Package Hub's asynchronous maintenance runner:
+
+1. One workflow step exposes only explicitly mapped auth vars/secrets to
+   `deploy/ansible/scripts/build-github-auth-vars.py`. The builder checks required
+   inputs, provider pairs and control characters without logging values.
+2. The builder creates a private temporary file (mode `0600` from creation), flushes
+   and fsyncs it, then atomically replaces `${RUNNER_TEMP}/packages-auth-vars.json`.
+   The workflow also applies `chmod 0600`. Unknown environment variables are ignored.
+3. Ansible receives `--extra-vars "@${RUNNER_TEMP}/packages-auth-vars.json"`.
+   Only the path is in the process arguments. No secret is passed through `-e key=value`.
+4. The controller stages an explicit allowlist of `packages_auth_*` inputs into
+   root-owned `auth-vars.json` (`0600`) inside the existing private invocation
+   directory. The locked, asynchronous Ansible process reads it using a separate
+   `--extra-vars @auth-vars.json`. This second hop is necessary because the Package
+   Hub starts its deployment on the target under the process-owned `flock`.
+5. After release preparation, Ansible validates runtime inputs, rejects symlinks in
+   the file and all parent paths, and requires root-owned parents without group or
+   other write access. It manages the immediate parent as `root:root`, mode `0755`,
+   and atomically renders `packages-registry-auth.env.j2` to
+   `/etc/open-city-planner-packages/auth.env` as `root:root`, mode `0600`.
+   The existing stat checks and read-only Production preflight run before activation.
+6. Runner cleanup uses `if: always()` to remove the JSON file, interrupted temporary
+   files, SSH credentials and generated inventory. Remote invocation cleanup remains
+   tied to confirmed async completion; SSH loss must not delete inputs still in use.
+   Incomplete invocations remain root-private for operator inspection under the
+   existing maintenance policy. The managed runtime file persists across deployments.
+
+Secrets deliberately use `packages_auth_*`, outside the public
+`packages_registry_*` namespace exported to `settings.json`. The only auth settings
+in that public namespace are the activation boolean and runtime file path.
+Secret copy, validation and rendering tasks use `no_log: true`; secret writes also
+use `diff: false`. No secret values enter systemd unit files or frontend configuration.
+The existing `registry-db.env` is independent and unchanged. Auth's systemd
+EnvironmentFile is read by the root service manager before it drops privileges.
+
+### GitHub production inputs
+
+Set the **environment variable** `PACKAGES_REGISTRY_AUTH_ENABLED` only after the
+prerequisites below are ready. The following **environment secrets** are supported:
+
+| GitHub secret | Runtime environment key | Requirement |
+| --- | --- | --- |
+| `PACKAGES_AUTH_DATABASE_URL` | `AUTH_DATABASE_URL` | Required when enabled |
+| `PACKAGES_AUTH_SECRET` | `AUTH_SECRET` | Required when enabled |
+| `PACKAGES_AUTH_OAUTH_STATE_SECRET` | `OAUTH_STATE_SECRET` | Required when enabled |
+| `PACKAGES_AUTH_MFA_RECOVERY_PEPPER` | `MFA_RECOVERY_PEPPER` | Required when enabled |
+| `PACKAGES_AUTH_MFA_ENCRYPTION_KEY` | `MFA_ENCRYPTION_KEY` | Required when enabled |
+| `PACKAGES_AUTH_REDIS_URL` | `REDIS_URL` | Required when enabled |
+| `PACKAGES_AUTH_SMTP_HOST` | `SMTP_HOST` | Required when enabled |
+| `PACKAGES_AUTH_SMTP_USERNAME` | `SMTP_USERNAME` | Optional |
+| `PACKAGES_AUTH_SMTP_PASSWORD` | `SMTP_PASSWORD` | Optional |
+| `PACKAGES_AUTH_SMTP_FROM_EMAIL` | `SMTP_FROM_EMAIL` | Required when enabled |
+| `PACKAGES_AUTH_GITHUB_CLIENT_ID` | `GITHUB_CLIENT_ID` | Optional provider pair |
+| `PACKAGES_AUTH_GITHUB_CLIENT_SECRET` | `GITHUB_CLIENT_SECRET` | Optional provider pair |
+| `PACKAGES_AUTH_GOOGLE_CLIENT_ID` | `GOOGLE_CLIENT_ID` | Optional provider pair |
+| `PACKAGES_AUTH_GOOGLE_CLIENT_SECRET` | `GOOGLE_CLIENT_SECRET` | Optional provider pair |
+
+For either OAuth provider, both fields empty disables it, both supplied enables it,
+and one supplied without the other fails before deployment. No Mastodon inputs are
+introduced. SMTP without authentication is supported: the mail service calls
+`smtp.login` only when `SMTP_USERNAME` is set. For authenticated SMTP supply the
+credentials required by your relay; the template keeps TLS enabled on port 587.
+
+Use the GitHub CLI's interactive secret prompt, which avoids secret values in shell
+history and process arguments. These commands are operator instructions, not steps
+run by this PR:
+
+```bash
+gh variable set PACKAGES_REGISTRY_AUTH_ENABLED --env production --body false \
+  --repo oklabflensburg/open-city-planner-packages
+
+# Each command prompts for its value. Skip optional values you do not use.
+for name in \
+  PACKAGES_AUTH_DATABASE_URL \
+  PACKAGES_AUTH_SECRET \
+  PACKAGES_AUTH_OAUTH_STATE_SECRET \
+  PACKAGES_AUTH_MFA_RECOVERY_PEPPER \
+  PACKAGES_AUTH_MFA_ENCRYPTION_KEY \
+  PACKAGES_AUTH_REDIS_URL \
+  PACKAGES_AUTH_SMTP_HOST \
+  PACKAGES_AUTH_SMTP_USERNAME \
+  PACKAGES_AUTH_SMTP_PASSWORD \
+  PACKAGES_AUTH_SMTP_FROM_EMAIL \
+  PACKAGES_AUTH_GITHUB_CLIENT_ID \
+  PACKAGES_AUTH_GITHUB_CLIENT_SECRET \
+  PACKAGES_AUTH_GOOGLE_CLIENT_ID \
+  PACKAGES_AUTH_GOOGLE_CLIENT_SECRET
+do
+  gh secret set "$name" --env production \
+    --repo oklabflensburg/open-city-planner-packages
+done
+
+# Enable only after completing the prerequisite sequence below.
+gh variable set PACKAGES_REGISTRY_AUTH_ENABLED --env production --body true \
+  --repo oklabflensburg/open-city-planner-packages
+```
+
+Stable security settings are deterministic Ansible values rather than GitHub secrets.
+The HTTPS origins, CORS origin and WebAuthn RP ID derive from
+`packages_registry_domain`. **`API_BASE_URL` is the bare HTTPS origin without `/api`**:
+`web/backend/app/auth/config.py` rejects paths and `oauth.py` appends
+`/api/v1/auth/oauth/{provider}/callback` itself. Using the issue's proposed `/api`
+suffix would fail preflight and duplicate the callback path. `JWT_ISSUER` is
+`https://<packages_registry_domain>/api`. Existing tokens issued under a different
+issuer require users to sign in again.
+
+### Activation sequence
+
+1. Migrate the auth schema separately with the owner/migration role under the
+   shared maintenance lock (see below).
+2. Configure the dedicated auth runtime database role and grants, excluding all
+   Registry write privileges.
+3. Provide Redis for the security rate limiter.
+4. Provide a TLS SMTP relay.
+5. Set the required GitHub `production` secrets.
+6. Optionally register GitHub OAuth and supply both GitHub fields.
+7. Optionally register Google OAuth and supply both Google fields.
+8. Set `PACKAGES_REGISTRY_AUTH_ENABLED=true` in GitHub Environment `production`.
+9. Run the normal reviewed Production deployment. Updating a GitHub variable alone
+   does not trigger a deploy; the existing workflow requires an application-changing
+   push to `main` and all existing CI gates.
+10. The deployment renders `auth.env`, checks ownership/mode and runs the existing
+    Production preflight. Missing migrations, grants or Redis stop activation.
+11. Require successful local auth/Registry health checks, TLS checks and public
+    Registry smoke checks. Verify registration, verification email and any configured
+    providers through the Package Hub after deployment.
+
+No deployment step creates a database, runs `alembic upgrade head`, installs Redis
+or configures SMTP. A failed preflight can leave the newly managed runtime file on
+disk while the running services retain their previous environment until restart.
+Release rollback does not restore old credentials; coordinate secret rotation and
+back up keys independently of release rollback.
 
 Required production configuration:
 
@@ -184,7 +321,7 @@ Required production configuration:
   CRUD grants on auth tables, SELECT on `auth_alembic_version`, and no Registry
   write privileges. Use a separate owner/migration role for schema changes.
 - `APP_ENVIRONMENT=production`, `AUTH_ENABLED=true`, `APP_BASE_URL`, `API_BASE_URL`,
-  `JWT_ISSUER`: `https://packages.stadtplaner.oklabflensburg.de`;
+  and `JWT_ISSUER` as described above;
   `JWT_AUDIENCE=package-hub`.
 - Independent random `AUTH_SECRET`, `OAUTH_STATE_SECRET`, `MFA_RECOVERY_PEPPER`
   (at least 32 characters each); `MFA_ENCRYPTION_KEY` generated with Fernet.
@@ -229,6 +366,40 @@ These routes also use `no-referrer`. Other Registry logging remains unchanged.
 CI adds an auth job with disposable PostgreSQL and virtual WebAuthn. Production
 workflow eligibility depends on that job as well as the existing gates. Tests
 never contact real OAuth providers or require production credentials.
+
+## Secret deployment validation (#70, 2026-09-07)
+
+Previously, the Production workflow forwarded neither the auth activation flag nor
+runtime secrets, so the `false` default persisted and Ansible expected a manually
+provisioned EnvironmentFile. This change supplies both through the separate private
+transport described above; it performs no Production operation.
+
+| Check | Result |
+| --- | --- |
+| `uv run pytest deploy/ansible/tests tests web/backend/tests` | 373 passed |
+| Final `uv run pytest deploy/ansible/tests/test_maintenance_lock.py deploy/ansible/tests/test_auth_secret_transport.py tests/test_workflow_contract.py` after adding complete-provider and enabled async-runner cases | 70 passed |
+| `uv run --extra auth --extra registry-db pytest web/backend/auth_tests web/backend/db_tests` with disposable PostgreSQL 18 | 283 passed; 4 optional host tests initially skipped |
+| `uv run pytest web/backend/db_tests/test_registry_host_contract.py` with the pinned Host checkout and disposable PostgreSQL | All 4 passed |
+| `pnpm install --frozen-lockfile`, `pnpm typecheck`, `pnpm test`, `pnpm build` in `web/frontend` | All passed |
+| `pnpm test:ssr` against the built frontend | 5 passed |
+| `uv run ruff check .` | Passed |
+| `uv run ansible-playbook --syntax-check -i deploy/ansible/inventory/production.example.ini deploy/ansible/playbooks/deploy.yml` | Passed |
+| `git diff --check` | Passed |
+| Additional disposable-container Ansible check as root | 7 cases passed: actual root:root/0600, disabled preservation, missing secret, file symlink, parent symlink, writable parent, partial OAuth; no sentinel output |
+
+The root-container check executed the real runtime tasks and the existing preflight
+stat/security tasks, without starting systemd services. Committed regression tests
+exercise both secret hops (including the actual asynchronous locked runner), the
+real template and Production Settings validation, optional-provider behavior,
+control-character rejection and sentinel absence from logs under `--diff`, public
+settings and systemd units. Existing Starlette/httpx deprecation and frontend build
+performance warnings do not fail these checks.
+
+From these local tests the change is ready for CI and review. They do not attest to
+live Production schema, grants, credentials, service reachability or TLS. Activation
+still requires the documented prerequisites and successful on-server read-only
+preflight and smoke checks. No GitHub Production input, Production database or
+Production service was changed.
 
 ## Validation report (2026-09-06)
 
