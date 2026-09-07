@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import yaml
@@ -113,6 +114,40 @@ def test_validation_gates_are_mandatory_except_test_suite() -> None:
         "-m",
         "not repository_history",
     ]
+
+
+def test_production_frontend_tests_use_one_worker_without_weakening_gates() -> None:
+    tasks = yaml.safe_load(read(ROLE / "tasks/main.yml"))
+    task = next(task for task in tasks if task["name"] == "Test package explorer frontend")
+    # Exact argv also excludes file filters, skipped suites and timeout overrides.
+    assert task == {
+        "name": "Test package explorer frontend",
+        "ansible.builtin.command": {
+            "argv": ["corepack", "pnpm", "exec", "vitest", "run", "--maxWorkers=1"],
+            "chdir": "{{ packages_registry_release_path }}/web/frontend",
+        },
+        "environment": {"CI": "1"},
+        "become_user": "{{ packages_registry_service_user }}",
+        "changed_when": False,
+        "when": "packages_registry_run_tests | bool",
+    }
+
+
+def test_frontend_worker_limit_is_not_global_or_applied_to_ci() -> None:
+    frontend = ROOT / "web/frontend"
+    package = json.loads(read(frontend / "package.json"))
+    assert package["scripts"]["test"] == "vitest run"
+    config = read(frontend / "vitest.config.ts")
+    assert "include: ['tests/**/*.test.ts']" in config
+    assert "exclude:" not in config
+    for option in ("maxWorkers", "minWorkers", "fileParallelism"):
+        assert option not in config
+    workflow = yaml.safe_load(read(ROOT / ".github/workflows/registry.yml"))
+    web_job = workflow["jobs"]["web"]
+    step = next(step for step in web_job["steps"] if step.get("name") == "Test package explorer")
+    assert step["run"] == "pnpm test"
+    assert "maxWorkers" not in str(web_job)
+    assert "VITEST_MAX" not in str(web_job)
 
 
 def test_nginx_preserves_static_registry_and_proxies_web_application() -> None:
